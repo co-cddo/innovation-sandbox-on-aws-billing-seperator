@@ -68,8 +68,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run validation (lint + test + build)
-        run: npm run validate
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test:ci
+
+      - name: Build
+        run: npm run build
 
       - name: Verify CDK template generation
         run: npx cdk synth --quiet

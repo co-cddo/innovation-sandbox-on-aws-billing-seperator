@@ -8,6 +8,7 @@
   "scripts": {
     "build": "npx tsc -p tsconfig.build.json",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --maxWorkers=1",
     "lint": "eslint . --ext .ts",
     "deploy": "cdk deploy --all",
     "destroy": "cdk destroy --all",
