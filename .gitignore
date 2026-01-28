@@ -18,6 +18,9 @@ dist/
 !eslint.config.js
 !.eslintrc.js
 
+# Keep custom type definitions
+!types/*.d.ts
+
 # OS files
 .DS_Store
 Thumbs.db
