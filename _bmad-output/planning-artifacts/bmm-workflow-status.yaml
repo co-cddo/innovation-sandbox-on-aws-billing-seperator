@@ -1,0 +1,113 @@
+# BMM Workflow Status
+# This tracks progress through BMM methodology phases.
+# Implementation phase is tracked separately in sprint-status.yaml
+
+# STATUS DEFINITIONS:
+# ==================
+# Initial Status (before completion):
+#   - required: Must be completed to progress
+#   - optional: Can be completed but not required
+#   - recommended: Strongly suggested but not required
+#   - conditional: Required only if certain conditions met (e.g., if_has_ui)
+#
+# Completion Status:
+#   - {file-path}: File path when completed (e.g., "product-brief.md")
+#   - skipped: Optional/conditional workflow that was skipped
+
+generated: "2026-01-27"
+project: "innovation-sandbox-on-aws-billing-seperator"
+project_type: "software"
+selected_track: "method"
+field_type: "brownfield"
+workflow_path: "method-brownfield"
+
+phases:
+  - phase: 1
+    name: "Analysis (Optional)"
+    workflows:
+      - id: "brainstorm-project"
+        name: "Brainstorming"
+        agent: "analyst"
+        command: "/bmad:core:workflows:brainstorming"
+        status: "skipped"
+        note: "Not selected by user"
+
+      - id: "research"
+        name: "Research"
+        agent: "analyst"
+        command: "/bmad:bmm:workflows:research"
+        status: "_bmad-output/planning-artifacts/research/technical-isb-quarantine-automation-research-2026-01-27.md"
+        note: "Completed - ISB quarantine automation technical research"
+
+      - id: "product-brief"
+        name: "Product Brief"
+        agent: "analyst"
+        command: "/bmad:bmm:workflows:create-product-brief"
+        status: "skipped"
+        note: "Skipped - tactical solution, research doc provided sufficient context"
+
+  - phase: 2
+    name: "Planning"
+    workflows:
+      - id: "prd"
+        name: "Product Requirements Document"
+        agent: "pm"
+        command: "/bmad:bmm:workflows:prd"
+        status: "_bmad-output/planning-artifacts/prd.md"
+        completed: "2026-01-28"
+        note: "38 FRs, 16 NFRs, 4 user journeys, polished and ready for architecture"
+
+      - id: "create-ux-design"
+        name: "UX Design"
+        agent: "ux-designer"
+        command: "/bmad:bmm:workflows:create-ux-design"
+        status: "skipped"
+        condition: "if_has_ui"
+        note: "Not needed - serverless backend with no UI"
+
+  - phase: 3
+    name: "Solutioning"
+    workflows:
+      - id: "create-architecture"
+        name: "Architecture Design"
+        agent: "architect"
+        command: "/bmad:bmm:workflows:create-architecture"
+        status: "_bmad-output/planning-artifacts/architecture.md"
+        completed: "2026-01-28"
+        note: "15+ decisions, 8 pattern categories, complete project structure, validated and ready for implementation"
+        artifacts:
+          - "_bmad-output/planning-artifacts/architecture.md"
+          - "_bmad-output/project-context.md"
+
+      - id: "create-epics-and-stories"
+        name: "Epics & Stories"
+        agent: "pm"
+        command: "/bmad:bmm:workflows:create-epics-and-stories"
+        status: "_bmad-output/planning-artifacts/epics.md"
+        completed: "2026-01-28"
+        note: "4 epics, 14 stories, 38 FRs covered, validated and ready for implementation"
+
+      - id: "test-design"
+        name: "Test Design"
+        agent: "tea"
+        command: "/bmad:bmm:workflows:testarch-test-design"
+        status: "optional"
+        output: "System-level testability review"
+
+      - id: "implementation-readiness"
+        name: "Implementation Readiness Check"
+        agent: "architect"
+        command: "/bmad:bmm:workflows:check-implementation-readiness"
+        status: "_bmad-output/planning-artifacts/implementation-readiness-report-2026-01-28.md"
+        completed: "2026-01-28"
+        note: "READY - 100% FR coverage, 0 critical blockers, 1 major (non-blocking) + 2 minor issues"
+
+  - phase: 4
+    name: "Implementation"
+    workflows:
+      - id: "sprint-planning"
+        name: "Sprint Planning"
+        agent: "sm"
+        command: "/bmad:bmm:workflows:sprint-planning"
+        status: "required"
+        note: "Creates sprint plan - subsequent work tracked in sprint-status.yaml"
