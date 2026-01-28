@@ -81,6 +81,21 @@ jobs:
 
       - name: Verify CDK template generation
         run: npx cdk synth --quiet
+        env:
+          # Use test context values for synth verification
+          CDK_CONTEXT_JSON: |
+            {
+              "environment": "test",
+              "hubAccountId": "123456789012",
+              "orgMgmtAccountId": "098765432109",
+              "accountTableName": "isb-sandbox-accounts",
+              "sandboxOuId": "ou-test-sandbox",
+              "availableOuId": "ou-test-available",
+              "quarantineOuId": "ou-test-quarantine",
+              "cleanupOuId": "ou-test-cleanup",
+              "intermediateRoleArn": "arn:aws:iam::123456789012:role/isb-hub-role",
+              "orgMgtRoleArn": "arn:aws:iam::098765432109:role/isb-org-mgt-role"
+            }
 
   # Only deploy on manual trigger (requires AWS credentials)
   deploy:

@@ -49,6 +49,8 @@ jobs:
           CDK_CONTEXT_JSON: |
             {
               "environment": "test",
+              "hubAccountId": "123456789012",
+              "orgMgmtAccountId": "098765432109",
               "accountTableName": "isb-sandbox-accounts",
               "sandboxOuId": "ou-test-sandbox",
               "availableOuId": "ou-test-available",
