@@ -86,6 +86,7 @@ function createServices(env: LambdaEnv) {
   });
 
   const orgsClient = new OrganizationsClient({
+    region: 'us-east-1', // Organizations API is only available in us-east-1
     credentials: orgsCredentials,
     customUserAgent: env.USER_AGENT_EXTRA,
   });

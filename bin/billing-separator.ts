@@ -24,6 +24,9 @@ const orgMgtRoleArn = app.node.tryGetContext('orgMgtRoleArn');
 // Alerting (optional)
 const snsAlertEmail = app.node.tryGetContext('snsAlertEmail');
 
+// KMS key for DynamoDB table (optional - required if table uses CMK)
+const accountTableKmsKeyArn = app.node.tryGetContext('accountTableKmsKeyArn');
+
 /**
  * ISB Billing Separator - Multi-Stack Architecture
  *
@@ -70,6 +73,7 @@ const hubStack = new HubStack(app, `isb-billing-separator-hub-${environment}`, {
   intermediateRoleArn,
   orgMgtRoleArn,
   snsAlertEmail, // Optional: omit for no email notifications
+  accountTableKmsKeyArn, // Optional: required if DynamoDB table uses CMK encryption
   env: {
     account: hubAccountId || process.env.CDK_DEFAULT_ACCOUNT,
     region: 'us-west-2',

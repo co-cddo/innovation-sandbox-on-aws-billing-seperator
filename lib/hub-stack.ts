@@ -42,6 +42,8 @@ export interface HubStackProps extends cdk.StackProps {
   orgMgtRoleArn: string;
   /** Email address for SNS alert notifications (optional) */
   snsAlertEmail?: string;
+  /** ARN of KMS key encrypting the DynamoDB table (optional - required if table uses CMK) */
+  accountTableKmsKeyArn?: string;
 }
 
 /**
@@ -100,7 +102,9 @@ export class HubStack extends cdk.Stack {
       eventBusName: `${this.resourcePrefix}-events-${props.environment}`,
     });
 
-    // Allow the OrgMgmt account's EventBridge forwarder role to put events on this bus
+    // Allow the OrgMgmt account to put events on this bus
+    // Uses account-level principal (not role-specific) to avoid chicken-and-egg deployment issue
+    // The OrgMgmtStack role doesn't exist until OrgMgmtStack is deployed
     const orgMgmtAccountId = this.node.tryGetContext('orgMgmtAccountId');
     if (orgMgmtAccountId) {
       new events.CfnEventBusPolicy(this, 'AllowOrgMgmtPutEvents', {
@@ -109,7 +113,7 @@ export class HubStack extends cdk.Stack {
         statement: {
           Effect: 'Allow',
           Principal: {
-            AWS: `arn:aws:iam::${orgMgmtAccountId}:role/${this.resourcePrefix}-event-forwarder-${props.environment}`,
+            AWS: `arn:aws:iam::${orgMgmtAccountId}:root`,
           },
           Action: 'events:PutEvents',
           Resource: this.eventBus.eventBusArn,
@@ -275,16 +279,26 @@ export class HubStack extends cdk.Stack {
     this.quarantineLambda.addToRolePolicy(assumeRolePolicy);
     this.unquarantineLambda.addToRolePolicy(assumeRolePolicy);
 
-    // Grant DynamoDB read access for account table (least privilege)
-    const dynamoDbReadPolicy = new iam.PolicyStatement({
-      actions: ['dynamodb:GetItem', 'dynamodb:Query'],
+    // Grant DynamoDB read/write access for account table (to update quarantine status)
+    const dynamoDbPolicy = new iam.PolicyStatement({
+      actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
       resources: [
         `arn:aws:dynamodb:${this.region}:${this.account}:table/${props.accountTableName}`,
         `arn:aws:dynamodb:${this.region}:${this.account}:table/${props.accountTableName}/index/*`,
       ],
     });
-    this.quarantineLambda.addToRolePolicy(dynamoDbReadPolicy);
-    this.unquarantineLambda.addToRolePolicy(dynamoDbReadPolicy);
+    this.quarantineLambda.addToRolePolicy(dynamoDbPolicy);
+    this.unquarantineLambda.addToRolePolicy(dynamoDbPolicy);
+
+    // Grant KMS decrypt if table uses customer-managed key (required for encrypted DynamoDB tables)
+    if (props.accountTableKmsKeyArn) {
+      const kmsDecryptPolicy = new iam.PolicyStatement({
+        actions: ['kms:Decrypt'],
+        resources: [props.accountTableKmsKeyArn],
+      });
+      this.quarantineLambda.addToRolePolicy(kmsDecryptPolicy);
+      this.unquarantineLambda.addToRolePolicy(kmsDecryptPolicy);
+    }
 
     // Grant Scheduler permissions to QuarantineLambda (create schedules)
     const schedulerCreatePolicy = new iam.PolicyStatement({
