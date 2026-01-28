@@ -35,7 +35,9 @@ jobs:
         run: npm run lint
 
       - name: Run tests
-        run: npm run test:ci
+        run: |
+          export PATH="$(pwd)/node_modules/.bin:$PATH"
+          npm run test:ci
 
       - name: Build
         run: npm run build
