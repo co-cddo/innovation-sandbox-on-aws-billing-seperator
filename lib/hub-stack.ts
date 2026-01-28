@@ -219,6 +219,10 @@ export class HubStack extends cdk.Stack {
         minify: true,
         sourceMap: true,
         externalModules: ['@aws-sdk/*'], // Use Lambda's built-in SDK
+        // Resolve ISB commons imports from the submodule
+        esbuildArgs: {
+          '--alias:@amzn/innovation-sandbox-commons': './deps/isb/source/common',
+        },
       },
     };
 
