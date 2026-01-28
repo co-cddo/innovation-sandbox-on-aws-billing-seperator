@@ -66,15 +66,15 @@ describe('HubStack', () => {
       template = Template.fromStack(stack);
     });
 
-    it('creates an EventBus policy with account-level principal', () => {
-      // Uses account-level principal to avoid chicken-and-egg deployment issue
-      // (OrgMgmtStack role doesn't exist until OrgMgmtStack is deployed)
+    it('creates an EventBus policy with specific event forwarder role principal', () => {
+      // Uses specific role principal for least-privilege access
+      // The role is created by OrgMgmtStack with predictable naming
       template.hasResourceProperties('AWS::Events::EventBusPolicy', {
         StatementId: 'AllowOrgMgmtEventForwarder',
         Statement: {
           Effect: 'Allow',
           Principal: {
-            AWS: 'arn:aws:iam::999888777666:root',
+            AWS: 'arn:aws:iam::999888777666:role/isb-billing-sep-event-forwarder-test',
           },
           Action: 'events:PutEvents',
         },

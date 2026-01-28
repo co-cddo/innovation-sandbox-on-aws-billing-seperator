@@ -102,18 +102,20 @@ export class HubStack extends cdk.Stack {
       eventBusName: `${this.resourcePrefix}-events-${props.environment}`,
     });
 
-    // Allow the OrgMgmt account to put events on this bus
-    // Uses account-level principal (not role-specific) to avoid chicken-and-egg deployment issue
-    // The OrgMgmtStack role doesn't exist until OrgMgmtStack is deployed
+    // Allow only the specific OrgMgmt event forwarder role to put events on this bus
+    // This follows least-privilege by restricting to the exact role created in OrgMgmtStack
     const orgMgmtAccountId = this.node.tryGetContext('orgMgmtAccountId');
     if (orgMgmtAccountId) {
+      // Construct the specific role ARN using the known naming convention from OrgMgmtStack
+      const eventForwarderRoleArn = `arn:aws:iam::${orgMgmtAccountId}:role/${this.resourcePrefix}-event-forwarder-${props.environment}`;
+
       new events.CfnEventBusPolicy(this, 'AllowOrgMgmtPutEvents', {
         eventBusName: this.eventBus.eventBusName,
         statementId: 'AllowOrgMgmtEventForwarder',
         statement: {
           Effect: 'Allow',
           Principal: {
-            AWS: `arn:aws:iam::${orgMgmtAccountId}:root`,
+            AWS: eventForwarderRoleArn,
           },
           Action: 'events:PutEvents',
           Resource: this.eventBus.eventBusArn,
