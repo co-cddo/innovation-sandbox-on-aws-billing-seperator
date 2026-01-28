@@ -1,0 +1,51 @@
+# PR Check Workflow
+# Validates pull requests before merge to main branch.
+# Runs linting, tests, build, and CDK synth to verify template generation.
+
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true  # Required for ISB submodule
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run validation (lint + test + build)
+        run: npm run validate
+
+      - name: Verify CDK template generation
+        run: npx cdk synth --quiet
+        env:
+          # Use test context values for synth verification
+          CDK_CONTEXT_JSON: |
+            {
+              "environment": "test",
+              "accountTableName": "isb-sandbox-accounts",
+              "sandboxOuId": "ou-test-sandbox",
+              "availableOuId": "ou-test-available",
+              "quarantineOuId": "ou-test-quarantine",
+              "cleanupOuId": "ou-test-cleanup",
+              "intermediateRoleArn": "arn:aws:iam::123456789012:role/isb-hub-role",
+              "orgMgtRoleArn": "arn:aws:iam::098765432109:role/isb-org-mgt-role"
+            }

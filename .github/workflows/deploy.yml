@@ -1,0 +1,100 @@
+# Deployment Workflow
+# Deploys the ISB Billing Separator stack via CDK using GitHub OIDC authentication.
+#
+# Required GitHub Secrets (per environment):
+#   - AWS_ROLE_ARN: IAM role ARN to assume for deployment
+#
+# Required GitHub Variables (per environment):
+#   - AWS_REGION: Target AWS region (e.g., eu-west-2)
+#
+# The IAM role must have a trust policy allowing GitHub OIDC:
+# {
+#   "Version": "2012-10-17",
+#   "Statement": [{
+#     "Effect": "Allow",
+#     "Principal": {
+#       "Federated": "arn:aws:iam::ACCOUNT:oidc-provider/token.actions.githubusercontent.com"
+#     },
+#     "Action": "sts:AssumeRoleWithWebIdentity",
+#     "Condition": {
+#       "StringEquals": {
+#         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+#       },
+#       "StringLike": {
+#         "token.actions.githubusercontent.com:sub": "repo:ORG/REPO:*"
+#       }
+#     }
+#   }]
+# }
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write  # Required for OIDC token request
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || 'dev' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true  # Required for ISB submodule
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run validation (lint + test + build)
+        run: npm run validate
+
+      - name: Deploy CDK stack
+        run: npx cdk deploy --require-approval never --outputs-file cdk-outputs.json
+
+      - name: Display deployment outputs
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment || 'dev' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** ${{ vars.AWS_REGION || 'eu-west-2' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Stack Outputs" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat cdk-outputs.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload CDK outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdk-outputs-${{ github.event.inputs.environment || 'dev' }}
+          path: cdk-outputs.json
+          retention-days: 30

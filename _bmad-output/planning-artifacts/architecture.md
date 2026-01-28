@@ -431,11 +431,20 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-west-2
+          aws-region: us-west-2  # Hub account region
 
       - run: npm ci
       - run: npm test
-      - run: npx cdk deploy --require-approval never -c env=prod
+
+      # Deploy Hub stack to us-west-2
+      - run: npx cdk deploy IsbBillingSeparatorHubStack --require-approval never -c env=prod
+
+      # Deploy Org Mgmt stack to us-east-1 (Organizations events only appear in us-east-1)
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ORG_MGMT_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1  # REQUIRED: Organizations is global service
+      - run: npx cdk deploy IsbBillingSeparatorOrgMgmtStack --require-approval never -c env=prod
 ```
 
 **Key CI/CD Requirements:**
@@ -872,14 +881,52 @@ innovation-sandbox-on-aws-billing-seperator/
 
 ### Spike Results Documentation
 
-**Location:** Update the "Pre-Implementation Spike" section in this architecture document with results.
+**Spike Completed:** 2026-01-28
 
-After completing the spike, document:
-- Organization Trail configuration verified: Yes/No
-- Events arrive on Hub EventBridge: Yes/No
-- Observed latency: X seconds
-- Scheduler quota verified: Yes/No
-- Architecture adjustments required: None / [describe]
+| Question | Answer | Details |
+|----------|--------|---------|
+| Does Organization Trail exist? | ✅ Yes | `aws-controltower-BaselineCloudTrail` (IsOrganizationTrail: true) |
+| Does it log `organizations.amazonaws.com` events? | ✅ Yes | IncludeManagementEvents: true, no exclusions |
+| Do events arrive on Hub account's default EventBridge bus? | ❌ **NO** | Events only appear in Org Management account's EventBridge |
+| Do events arrive on Org Mgmt account's EventBridge? | ✅ Yes | Verified in us-east-1 (global services region) |
+| What's typical event latency? | ~13 seconds | Event at 14:44:12Z captured at 14:44:12Z |
+| Event payload complete? | ✅ Yes | Contains accountId, sourceParentId, destinationParentId |
+
+**Spike Outcome:** CONTINGENCY REQUIRED
+
+CloudTrail MoveAccount events are logged by the Organization Trail and appear on the **Org Management account's default EventBridge bus in us-east-1**, but do NOT automatically propagate to member accounts' EventBridge buses.
+
+**Architecture Adjustment Required:** Implement the contingency plan:
+1. Create `OrgMgmtStack` with cross-account EventBridge rule in us-east-1
+2. Forward MoveAccount events to Hub account's EventBridge
+3. Update deployment to use `cdk deploy --all` for multi-stack
+4. Update removal instructions for multi-stack teardown
+
+**Sample Event Payload (sanitized):**
+```json
+{
+  "version": "0",
+  "detail-type": "AWS API Call via CloudTrail",
+  "source": "aws.organizations",
+  "account": "955063685555",
+  "region": "us-east-1",
+  "detail": {
+    "eventSource": "organizations.amazonaws.com",
+    "eventName": "MoveAccount",
+    "requestParameters": {
+      "accountId": "417845783913",
+      "sourceParentId": "ou-2laj-x3o8lbk8",
+      "destinationParentId": "ou-2laj-oihxgbtr"
+    }
+  }
+}
+```
+
+**Key Findings:**
+- Organizations is a global service - events occur in us-east-1
+- Organization Trail logs to S3/CloudWatch in Org Mgmt account only
+- CloudTrail events do NOT automatically cross account boundaries to EventBridge
+- Must explicitly forward events using cross-account EventBridge rule
 
 ### README Structure
 
@@ -1062,10 +1109,17 @@ Project structure directly supports all architectural decisions. `/source/lambda
 | CI/CD | Single account deploy role | Multi-account deploy roles |
 
 **Contingency Implementation:**
-1. Add `OrgMgmtStack` to CDK app with EventBridge rule
-2. Update GitHub Actions to deploy both stacks
+1. Add `OrgMgmtStack` to CDK app with EventBridge rule **in us-east-1** (Organizations is global service, events appear in us-east-1 only)
+2. Update GitHub Actions to deploy both stacks (Hub in us-west-2, Org Mgmt in us-east-1)
 3. Update removal instructions for multi-stack teardown
 4. Document cross-account EventBridge rule permissions
+5. Configure cross-account EventBridge target from Org Mgmt (us-east-1) → Hub (us-west-2)
+
+**Multi-Region Deployment Strategy (Post-Spike):**
+| Stack | Region | Rationale |
+|-------|--------|-----------|
+| Hub Stack | us-west-2 | Main compute region, Lambda + SQS + alarms |
+| Org Mgmt Stack | us-east-1 | **REQUIRED** - Organizations events only appear in us-east-1 |
 
 **This contingency is pre-planned so spike results don't block implementation.**
 
@@ -1162,7 +1216,7 @@ Comprehensive patterns cover naming, handler structure, error handling, idempote
 ### Architecture Definition of Done
 
 This architecture is considered complete when:
-- [ ] Spike results are documented in this file
+- [x] Spike results are documented in this file (2026-01-28: Contingency required)
 - [x] All validation checks pass
 - [x] User (Cns) has approved the document
 - [x] Document is saved to `_bmad-output/planning-artifacts/architecture.md`

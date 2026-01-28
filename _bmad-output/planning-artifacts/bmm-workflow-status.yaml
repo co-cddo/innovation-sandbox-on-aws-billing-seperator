@@ -109,5 +109,6 @@ phases:
         name: "Sprint Planning"
         agent: "sm"
         command: "/bmad:bmm:workflows:sprint-planning"
-        status: "required"
-        note: "Creates sprint plan - subsequent work tracked in sprint-status.yaml"
+        status: "_bmad-output/implementation-artifacts/sprint-status.yaml"
+        completed: "2026-01-28"
+        note: "4 epics, 14 stories extracted - ready for implementation"

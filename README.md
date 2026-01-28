@@ -1,0 +1,264 @@
+# ISB Billing Separator
+
+A workaround solution that enforces billing period boundaries for Innovation Sandbox (ISB) accounts by quarantining them for 72 hours after cleanup.
+
+## Overview
+
+The Innovation Sandbox (ISB) solution enables rapid AWS account provisioning for experimentation. When a sandbox is returned to the pool, ISB immediately moves it to the Available OU for reuse. This can cause billing attribution issues when the previous user's charges appear on the next user's invoice.
+
+The Billing Separator intercepts accounts transitioning from CleanUp to Available and holds them in a temporary Quarantine OU for 72 hours. This ensures billing data from the previous usage period settles before the account is reassigned.
+
+## Architecture
+
+```
+                    Org Management Account (us-east-1)
+                    ┌─────────────────────────────────┐
+                    │  CloudTrail MoveAccount Events  │
+                    │              │                  │
+                    │              ▼                  │
+                    │     EventBridge Rule            │
+                    │     (OrgMgmtStack)              │
+                    │              │                  │
+                    └──────────────┼──────────────────┘
+                                   │ Cross-account
+                                   │ event forwarding
+                    ┌──────────────┼──────────────────┐
+                    │              ▼                  │
+                    │     Custom Event Bus            │
+                    │              │                  │
+Hub Account         │              ▼                  │
+(us-west-2)         │     EventBridge Rule            │
+                    │              │                  │
+                    │              ▼                  │
+                    │         SQS Queue               │
+                    │              │                  │
+                    │              ▼                  │
+                    │    QuarantineLambda             │
+                    │              │                  │
+                    │    ┌─────────┴─────────┐        │
+                    │    │                   │        │
+                    │    ▼                   ▼        │
+                    │  Move to           Create       │
+                    │  Quarantine OU     Scheduler    │
+                    │                        │        │
+                    │                   72 hours      │
+                    │                        │        │
+                    │                        ▼        │
+                    │              UnquarantineLambda │
+                    │                        │        │
+                    │                        ▼        │
+                    │              Move to Available  │
+                    │                   OU            │
+                    │                                 │
+                    │   (HubStack)                    │
+                    └─────────────────────────────────┘
+```
+
+### Components
+
+**OrgMgmtStack** (Organization Management Account, us-east-1):
+- EventBridge rule capturing MoveAccount events to Available OU
+- Cross-account role for event forwarding
+- Forwards events to Hub account's custom event bus
+
+**HubStack** (Hub Account, us-west-2):
+- Custom EventBridge event bus receiving forwarded events
+- EventBridge rule routing events to SQS queue
+- SQS queue with DLQ for event buffering
+- QuarantineLambda: Intercepts and quarantines accounts
+- UnquarantineLambda: Releases accounts after 72 hours
+- EventBridge Scheduler group for delayed releases
+- CloudWatch alarms and SNS topic for monitoring
+
+## Prerequisites
+
+1. **Innovation Sandbox Deployed**: ISB must be operational with:
+   - DynamoDB account table
+   - OU structure (CleanUp, Available, Quarantine OUs)
+   - Cross-account IAM roles configured
+
+2. **Quarantine OU Created**: Create a Quarantine OU within the Sandbox OU:
+   ```
+   Sandbox OU
+   ├── Active OU
+   ├── CleanUp OU
+   ├── Available OU
+   └── Quarantine OU  <-- Create this
+   ```
+
+3. **AWS CLI Configured**: With permissions to deploy to both Hub and Org Management accounts
+
+4. **Node.js 22+**: Required for building and testing
+
+## Installation
+
+1. **Clone the repository with submodules**:
+   ```bash
+   git clone --recurse-submodules <repository-url>
+   cd innovation-sandbox-on-aws-billing-seperator
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Configure CDK context**:
+   ```bash
+   cp cdk.context.example.json cdk.context.json
+   ```
+   Edit `cdk.context.json` with your environment values. See the file for documentation on each required value.
+
+4. **Run validation**:
+   ```bash
+   npm run validate
+   ```
+
+## Deployment
+
+Deploy both stacks with a single command:
+
+```bash
+npm run deploy
+```
+
+This deploys:
+1. `isb-billing-separator-hub-{env}` to Hub account (us-west-2)
+2. `isb-billing-separator-org-mgmt-{env}` to Org Management account (us-east-1)
+
+### Manual Deployment
+
+For more control, deploy stacks individually:
+
+```bash
+# Deploy Hub stack first
+npx cdk deploy isb-billing-separator-hub-<env>
+
+# Deploy Org Management stack
+npx cdk deploy isb-billing-separator-org-mgmt-<env>
+```
+
+### GitHub Actions Deployment
+
+The project includes CI/CD workflows for automated deployment:
+
+- **PR Check**: Runs on pull requests to validate code
+- **Deploy**: Runs on push to main or manual trigger
+
+Required GitHub secrets:
+- `AWS_ROLE_ARN`: IAM role ARN for OIDC-based deployment
+
+## Configuration
+
+All configuration is provided via CDK context. See `cdk.context.example.json` for the complete list:
+
+| Value | Description |
+|-------|-------------|
+| `environment` | Environment name (dev/staging/prod) |
+| `hubAccountId` | Hub AWS account ID |
+| `orgMgmtAccountId` | Organization Management AWS account ID |
+| `accountTableName` | ISB DynamoDB table name |
+| `sandboxOuId` | Parent Sandbox OU ID |
+| `availableOuId` | Available OU ID |
+| `quarantineOuId` | Quarantine OU ID |
+| `cleanupOuId` | CleanUp OU ID |
+| `intermediateRoleArn` | Hub account intermediate role ARN |
+| `orgMgtRoleArn` | Org Management account role ARN |
+| `snsAlertEmail` | (Optional) Email for alarm notifications |
+
+## Testing
+
+### Unit Tests
+
+```bash
+npm test
+```
+
+### Integration Testing
+
+See [test/integration/README.md](test/integration/README.md) for:
+- End-to-end test procedures
+- Verification commands
+- Troubleshooting guide
+- Account reconciliation steps
+
+## Monitoring
+
+### CloudWatch Alarms
+
+The solution creates alarms for:
+- **DLQ Alarm**: Triggers when 3+ messages in event DLQ
+- **QuarantineLambda Error Alarm**: Triggers on repeated Lambda errors
+- **UnquarantineLambda Error Alarm**: Triggers on repeated Lambda errors
+- **Rule DLQ Alarm**: Triggers on EventBridge rule delivery failures
+
+### CloudWatch Metrics
+
+Custom metrics in `ISB/BillingSeparator` namespace:
+- `QuarantineSuccessCount`: Successful quarantine operations
+- `UnquarantineSuccessCount`: Successful release operations
+
+### X-Ray Tracing
+
+Both Lambda functions have X-Ray tracing enabled for end-to-end visibility.
+
+## Removal
+
+Remove the solution completely:
+
+```bash
+npm run destroy
+```
+
+Or using CDK directly:
+
+```bash
+cdk destroy --all
+```
+
+**Important**: Accounts currently in Quarantine OU will remain there. See [test/integration/README.md](test/integration/README.md) for manual reconciliation steps.
+
+## Troubleshooting
+
+See [test/integration/README.md](test/integration/README.md) for detailed troubleshooting guidance including:
+- Event routing issues
+- Lambda errors
+- DLQ investigation
+- Account reconciliation
+
+## Development
+
+### Project Structure
+
+```
+.
+├── bin/                    # CDK app entry point
+├── lib/                    # CDK stack definitions
+│   ├── hub-stack.ts        # Main compute resources
+│   └── org-mgmt-stack.ts   # Event forwarding
+├── source/
+│   └── lambdas/            # Lambda handlers
+│       ├── quarantine/     # QuarantineLambda
+│       ├── unquarantine/   # UnquarantineLambda
+│       └── shared/         # Shared utilities
+├── test/                   # Tests
+│   ├── integration/        # Integration test docs
+│   └── billing-separator.test.ts  # CDK assertion tests
+└── deps/
+    └── isb/                # ISB git submodule
+```
+
+### Scripts
+
+| Script | Description |
+|--------|-------------|
+| `npm run build` | Compile TypeScript |
+| `npm run test` | Run Jest tests |
+| `npm run lint` | Run ESLint |
+| `npm run validate` | Lint + Test + Build |
+| `npm run deploy` | Deploy all stacks |
+| `npm run destroy` | Destroy all stacks |
+
+## License
+
+This project is licensed under the MIT License.

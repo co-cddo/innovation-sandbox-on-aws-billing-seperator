@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "paths": {
+      "@amzn/innovation-sandbox-commons/*": ["./types/isb-commons.d.ts"]
+    }
+  },
+  "include": [
+    "bin/**/*.ts",
+    "lib/**/*.ts",
+    "source/**/*.ts",
+    "test/**/*.ts",
+    "types/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "cdk.out",
+    "deps"
+  ]
+}

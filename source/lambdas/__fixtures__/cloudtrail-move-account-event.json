@@ -1,0 +1,52 @@
+{
+  "version": "0",
+  "id": "12345678-1234-1234-1234-123456789012",
+  "detail-type": "AWS API Call via CloudTrail",
+  "source": "aws.organizations",
+  "account": "955063685555",
+  "time": "2026-01-28T14:44:00Z",
+  "region": "us-east-1",
+  "resources": [],
+  "detail": {
+    "eventVersion": "1.08",
+    "userIdentity": {
+      "type": "AssumedRole",
+      "principalId": "AROAEXAMPLE:ISBCleanupRole",
+      "arn": "arn:aws:sts::568672915267:assumed-role/ISB-CleanupRole/ISBCleanupSession",
+      "accountId": "568672915267",
+      "accessKeyId": "ASIAEXAMPLE",
+      "sessionContext": {
+        "sessionIssuer": {
+          "type": "Role",
+          "principalId": "AROAEXAMPLE",
+          "arn": "arn:aws:iam::568672915267:role/ISB-CleanupRole",
+          "accountId": "568672915267",
+          "userName": "ISB-CleanupRole"
+        },
+        "attributes": {
+          "mfaAuthenticated": "false",
+          "creationDate": "2026-01-28T14:30:00Z"
+        }
+      }
+    },
+    "eventTime": "2026-01-28T14:44:00Z",
+    "eventSource": "organizations.amazonaws.com",
+    "eventName": "MoveAccount",
+    "awsRegion": "us-east-1",
+    "sourceIPAddress": "AWS Internal",
+    "userAgent": "aws-internal/3",
+    "requestParameters": {
+      "accountId": "417845783913",
+      "sourceParentId": "ou-2laj-x3o8lbk8",
+      "destinationParentId": "ou-2laj-oihxgbtr"
+    },
+    "responseElements": null,
+    "requestID": "87654321-4321-4321-4321-210987654321",
+    "eventID": "abcdef12-3456-7890-abcd-ef1234567890",
+    "readOnly": false,
+    "eventType": "AwsApiCall",
+    "managementEvent": true,
+    "recipientAccountId": "955063685555",
+    "eventCategory": "Management"
+  }
+}

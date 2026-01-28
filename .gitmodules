@@ -1,0 +1,3 @@
+[submodule "deps/isb"]
+	path = deps/isb
+	url = https://github.com/aws-solutions/innovation-sandbox-on-aws.git

@@ -1,0 +1,51 @@
+# Dependency directories
+node_modules/
+
+# CDK outputs
+cdk.out/
+
+# CDK context with runtime values (example is committed)
+cdk.context.json
+
+# Compiled TypeScript
+dist/
+*.js
+*.d.ts
+*.js.map
+
+# Keep specific JS files if needed
+!jest.config.js
+!eslint.config.js
+!.eslintrc.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary files
+tmp/
+temp/
+
+# BMAD framework (keep tracked)
+# _bmad/ is tracked
+# _bmad-output/ is tracked
+
+# Note: deps/isb/ is a git submodule - tracked by git, not ignored
