@@ -1,6 +1,23 @@
 # ISB Billing Separator
 
-A workaround solution that enforces billing period boundaries for Innovation Sandbox (ISB) accounts by quarantining them for 72 hours after cleanup.
+> **This is a temporary workaround.** This entire repository should be archived and the infrastructure destroyed once [aws-solutions/innovation-sandbox-on-aws#70](https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/70) is resolved with native cooldown support in ISB. We look forward to deleting all of this.
+
+A stop-gap solution that enforces billing and quota period boundaries for Innovation Sandbox (ISB) accounts by quarantining them for 72 hours after cleanup.
+
+## Why This Exists
+
+ISB currently has a "soft cooldown" that prefers older accounts but will still assign recently-cleaned accounts if the pool is exhausted. This causes:
+
+1. **Billing attribution issues** - Previous user's charges appear on next user's invoice
+2. **Quota exhaustion** - Heavy usage near end of lease throttles the next user (see [#88](https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/88))
+
+This workaround intercepts the ISB account lifecycle and enforces a hard 72-hour cooldown. It's ugly, adds operational complexity, and has edge cases - but it solves our immediate need until native support lands.
+
+## When To Delete This
+
+**Archive this repo and destroy the infrastructure when:**
+- ISB implements native hard cooldown support ([#70](https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/70))
+- The cooldown status approach is available (accounts held in cooldown state before becoming available)
 
 ## Overview
 
@@ -74,21 +91,12 @@ Hub Account         │              ▼                  │
 
 1. **Innovation Sandbox Deployed**: ISB must be operational with:
    - DynamoDB account table
-   - OU structure (CleanUp, Available, Quarantine OUs)
+   - OU structure including the existing Quarantine OU
    - Cross-account IAM roles configured
 
-2. **Quarantine OU Created**: Create a Quarantine OU within the Sandbox OU:
-   ```
-   Sandbox OU
-   ├── Active OU
-   ├── CleanUp OU
-   ├── Available OU
-   └── Quarantine OU  <-- Create this
-   ```
+2. **AWS CLI Configured**: With permissions to deploy to both Hub and Org Management accounts
 
-3. **AWS CLI Configured**: With permissions to deploy to both Hub and Org Management accounts
-
-4. **Node.js 22+**: Required for building and testing
+3. **Node.js 22+**: Required for building and testing
 
 ## Installation
 
@@ -217,6 +225,17 @@ cdk destroy --all
 ```
 
 **Important**: Accounts currently in Quarantine OU will remain there. See [test/integration/README.md](test/integration/README.md) for manual reconciliation steps.
+
+## Known Limitations
+
+This is a bolt-on workaround with inherent limitations:
+
+- **Race condition**: If the account pool is exhausted and a lease request arrives between the MoveAccount event firing and this solution intercepting it (or at quarantine release time), ISB may assign the account before we can quarantine it. Low probability but possible.
+- **Operational complexity**: Two additional CDK stacks across two accounts to maintain.
+- **No ISB integration**: ISB doesn't know about the quarantine - its UI/API will show accounts as "Available" when they're actually quarantined.
+- **Manual reconciliation**: If this solution is removed, quarantined accounts must be manually moved to Available OU.
+
+These limitations are acceptable for our use case but highlight why native ISB support is the proper solution.
 
 ## Troubleshooting
 
