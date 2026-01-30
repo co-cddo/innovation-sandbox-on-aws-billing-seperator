@@ -138,7 +138,7 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload CDK outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cdk-outputs-${{ github.event.inputs.environment || 'dev' }}
           path: cdk-outputs.json
