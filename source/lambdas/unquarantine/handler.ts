@@ -1,7 +1,7 @@
 /**
  * UnquarantineLambda Handler
  *
- * Releases accounts from Quarantine to Available OU after 72-hour quarantine period.
+ * Releases accounts from Quarantine to Available OU after 91-day quarantine period.
  * Triggered by EventBridge Scheduler with payload containing accountId and schedulerName.
  *
  * Event flow: EventBridge Scheduler → This Lambda (direct invocation)

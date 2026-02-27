@@ -35,7 +35,7 @@ This deploys:
    - Validates source is CleanUp OU
    - Moves account from Available to Quarantine OU
    - Updates DynamoDB status to "Quarantine"
-   - Creates EventBridge Scheduler for 72-hour release
+   - Creates EventBridge Scheduler for 91-day release
 5. Account remains in Quarantine OU
 
 **Verification**:
@@ -55,7 +55,7 @@ aws scheduler list-schedules \
 
 ### Scenario 2: Unquarantine Flow (Happy Path)
 
-**Trigger**: EventBridge Scheduler fires after 72 hours (or manual invocation)
+**Trigger**: EventBridge Scheduler fires after 91 days (or manual invocation)
 
 **Manual Trigger for Testing**:
 ```bash
