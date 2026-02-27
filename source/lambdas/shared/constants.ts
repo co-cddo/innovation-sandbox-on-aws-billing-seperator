@@ -4,9 +4,11 @@
 
 /**
  * Duration in hours that accounts remain in Quarantine before being released
- * to Available OU. This allows billing data to settle with the previous leaseholder.
+ * to Available OU (91 days). This ensures residual account metadata from the
+ * previous leaseholder (CloudTrail logs, Config history, resource tags, etc.)
+ * is fully cleared before the account is handed to a new leaseholder.
  */
-export const QUARANTINE_DURATION_HOURS = 72;
+export const QUARANTINE_DURATION_HOURS = 2184;
 
 /**
  * EventBridge Scheduler group name for managing unquarantine schedules.
@@ -32,7 +34,7 @@ export const USER_AGENT_SUFFIX = 'isb-billing-separator/1.0.0';
 
 /**
  * AWS Organizations tag key used to bypass quarantine for an account.
- * When present on an account, the quarantine handler skips the 72-hour hold
+ * When present on an account, the quarantine handler skips the 91-day hold
  * and removes the tag so subsequent cycles enforce quarantine normally.
  */
 export const BYPASS_QUARANTINE_TAG_KEY = 'do-not-separate';
@@ -72,7 +74,7 @@ export const ENV_KEYS = {
   /** ID of the Available OU - destination that triggers quarantine */
   AVAILABLE_OU_ID: 'AVAILABLE_OU_ID',
 
-  /** ID of the Quarantine OU - where accounts are held for 72 hours */
+  /** ID of the Quarantine OU - where accounts are held for 91 days */
   QUARANTINE_OU_ID: 'QUARANTINE_OU_ID',
 
   /** ID of the CleanUp OU - only accounts FROM this OU are quarantined */

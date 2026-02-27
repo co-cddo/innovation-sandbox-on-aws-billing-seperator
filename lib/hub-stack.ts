@@ -32,7 +32,7 @@ export interface HubStackProps extends cdk.StackProps {
   sandboxOuId: string;
   /** ID of the Available OU - destination that triggers quarantine */
   availableOuId: string;
-  /** ID of the Quarantine OU - where accounts are held for 72 hours */
+  /** ID of the Quarantine OU - where accounts are held for 91 days */
   quarantineOuId: string;
   /** ID of the CleanUp OU - only accounts FROM this OU are quarantined */
   cleanupOuId: string;
@@ -245,7 +245,7 @@ export class HubStack extends cdk.Stack {
     this.quarantineLambda = new NodejsFunction(this, 'QuarantineLambda', {
       ...lambdaConfig,
       functionName: `${this.resourcePrefix}-quarantine-${props.environment}`,
-      description: 'Intercepts accounts moving to Available OU and quarantines them for 72 hours',
+      description: 'Intercepts accounts moving to Available OU and quarantines them for 91 days',
       entry: path.join(__dirname, '../source/lambdas/quarantine/handler.ts'),
       handler: 'handler',
       environment: {
@@ -260,7 +260,7 @@ export class HubStack extends cdk.Stack {
     this.unquarantineLambda = new NodejsFunction(this, 'UnquarantineLambda', {
       ...lambdaConfig,
       functionName: `${this.resourcePrefix}-unquarantine-${props.environment}`,
-      description: 'Releases accounts from Quarantine to Available OU after 72-hour delay',
+      description: 'Releases accounts from Quarantine to Available OU after 91-day delay',
       entry: path.join(__dirname, '../source/lambdas/unquarantine/handler.ts'),
       handler: 'handler',
       environment: {

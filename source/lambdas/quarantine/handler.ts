@@ -2,7 +2,7 @@
  * QuarantineLambda Handler
  *
  * Intercepts CloudTrail MoveAccount events where accounts are moved to the Available OU.
- * If the source is CleanUp OU, the account is redirected to Quarantine OU for 72 hours.
+ * If the source is CleanUp OU, the account is redirected to Quarantine OU for 91 days.
  *
  * Event flow: CloudTrail → EventBridge → SQS → This Lambda
  */
@@ -284,7 +284,7 @@ async function processEvent(
     quarantineOuId: quarantineOu.Id,
   });
 
-  // Step 4: Create EventBridge Scheduler for 72-hour release (FR10, FR11, FR12)
+  // Step 4: Create EventBridge Scheduler for 91-day release (FR10, FR11, FR12)
   const now = Date.now();
   const schedulerName = `${SCHEDULER_NAME_PREFIX}-${accountId}-${now}`;
   const scheduleTime = new Date(now + QUARANTINE_DURATION_HOURS * 60 * 60 * 1000);
@@ -310,7 +310,7 @@ async function processEvent(
           RoleArn: env.SCHEDULER_ROLE_ARN,
           Input: JSON.stringify(schedulerPayload),
         },
-        Description: `Release account ${accountId} from quarantine after 72 hours`,
+        Description: `Release account ${accountId} from quarantine after 91 days`,
       })
     );
 

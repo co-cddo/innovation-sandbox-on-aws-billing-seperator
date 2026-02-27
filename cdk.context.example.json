@@ -22,7 +22,7 @@
   "_availableOuId_desc": "ID of the Available OU - accounts moving here from CleanUp trigger quarantine. REQUIRED for OrgMgmtStack deployment.",
 
   "quarantineOuId": "ou-xxxx-xxxxxxxx",
-  "_quarantineOuId_desc": "ID of the Quarantine OU - accounts are held here for 72 hours for billing attribution.",
+  "_quarantineOuId_desc": "ID of the Quarantine OU - accounts are held here for 91 days for billing and security metadata separation.",
 
   "cleanupOuId": "ou-xxxx-xxxxxxxx",
   "_cleanupOuId_desc": "ID of the CleanUp OU - only accounts coming FROM this OU are quarantined (source filter).",

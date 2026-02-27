@@ -2,7 +2,7 @@
 
 > **This is a temporary workaround.** This entire repository should be archived and the infrastructure destroyed once [aws-solutions/innovation-sandbox-on-aws#70](https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/70) is resolved with native cooldown support in ISB. We look forward to deleting all of this.
 
-A stop-gap solution that enforces billing and quota period boundaries for Innovation Sandbox (ISB) accounts by quarantining them for 72 hours after cleanup.
+A stop-gap solution that enforces billing and quota period boundaries for Innovation Sandbox (ISB) accounts by quarantining them for 91 days after cleanup.
 
 ## Why This Exists
 
@@ -11,7 +11,7 @@ ISB currently has a "soft cooldown" that prefers older accounts but will still a
 1. **Billing attribution issues** - Previous user's charges appear on next user's invoice
 2. **Quota exhaustion** - Heavy usage near end of lease throttles the next user (see [#88](https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/88))
 
-This workaround intercepts the ISB account lifecycle and enforces a hard 72-hour cooldown. It's ugly, adds operational complexity, and has edge cases - but it solves our immediate need until native support lands.
+This workaround intercepts the ISB account lifecycle and enforces a hard 91-day cooldown. It's ugly, adds operational complexity, and has edge cases - but it solves our immediate need until native support lands.
 
 ## When To Delete This
 
@@ -23,7 +23,7 @@ This workaround intercepts the ISB account lifecycle and enforces a hard 72-hour
 
 The Innovation Sandbox (ISB) solution enables rapid AWS account provisioning for experimentation. When a sandbox is returned to the pool, ISB immediately moves it to the Available OU for reuse. This can cause billing attribution issues when the previous user's charges appear on the next user's invoice.
 
-The Billing Separator intercepts accounts transitioning from CleanUp to Available and holds them in a temporary Quarantine OU for 72 hours. This ensures billing data from the previous usage period settles before the account is reassigned.
+The Billing Separator intercepts accounts transitioning from CleanUp to Available and holds them in a temporary Quarantine OU for 91 days. This ensures billing data from the previous usage period settles before the account is reassigned.
 
 ## Architecture
 
@@ -58,7 +58,7 @@ Hub Account         │              ▼                  │
                     │  Move to           Create       │
                     │  Quarantine OU     Scheduler    │
                     │                        │        │
-                    │                   72 hours      │
+                    │                   91 days       │
                     │                        │        │
                     │                        ▼        │
                     │              UnquarantineLambda │
@@ -83,7 +83,7 @@ Hub Account         │              ▼                  │
 - EventBridge rule routing events to SQS queue
 - SQS queue with DLQ for event buffering
 - QuarantineLambda: Intercepts and quarantines accounts
-- UnquarantineLambda: Releases accounts after 72 hours
+- UnquarantineLambda: Releases accounts after 91 days
 - EventBridge Scheduler group for delayed releases
 - CloudWatch alarms and SNS topic for monitoring
 
@@ -228,7 +228,7 @@ cdk destroy --all
 
 ## Quarantine Bypass
 
-New accounts with no billing history don't need the 72-hour quarantine. You can skip quarantine on a per-account, one-shot basis using the `do-not-separate` tag.
+New accounts with no billing history don't need the 91-day quarantine. You can skip quarantine on a per-account, one-shot basis using the `do-not-separate` tag.
 
 ### How to use
 
@@ -241,7 +241,7 @@ New accounts with no billing history don't need the 72-hour quarantine. You can 
 
 2. **Let the normal lifecycle run.** When the account moves from CleanUp → Available, the quarantine handler will:
    - Detect the `do-not-separate` tag
-   - Skip the 72-hour quarantine (the account stays in Available)
+   - Skip the 91-day quarantine (the account stays in Available)
    - **Remove the tag** so subsequent cycles enforce quarantine normally
 
 3. The bypass is **one-shot** — the tag is consumed on use. To bypass again, re-tag the account.
