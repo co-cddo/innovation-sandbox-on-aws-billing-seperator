@@ -31,6 +31,13 @@ export const RESOURCE_PREFIX = 'isb-billing-sep';
 export const USER_AGENT_SUFFIX = 'isb-billing-separator/1.0.0';
 
 /**
+ * AWS Organizations tag key used to bypass quarantine for an account.
+ * When present on an account, the quarantine handler skips the 72-hour hold
+ * and removes the tag so subsequent cycles enforce quarantine normally.
+ */
+export const BYPASS_QUARANTINE_TAG_KEY = 'do-not-separate';
+
+/**
  * Maximum number of SQS records to process per Lambda invocation.
  * Prevents DoS from excessive batch sizes.
  */
@@ -127,4 +134,13 @@ export const LOG_ACTIONS = {
 
   /** Scheduler deletion failed */
   SCHEDULER_DELETE_FAILED: 'SCHEDULER_DELETE_FAILED',
+
+  /** Quarantine bypassed due to do-not-separate tag */
+  QUARANTINE_BYPASS_TAG: 'QUARANTINE_BYPASS_TAG',
+
+  /** Failed to check for bypass tag (fail-safe: proceed with quarantine) */
+  TAG_CHECK_FAILED: 'TAG_CHECK_FAILED',
+
+  /** Failed to remove bypass tag after skipping quarantine */
+  TAG_REMOVAL_FAILED: 'TAG_REMOVAL_FAILED',
 } as const;

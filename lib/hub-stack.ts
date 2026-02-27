@@ -36,10 +36,8 @@ export interface HubStackProps extends cdk.StackProps {
   quarantineOuId: string;
   /** ID of the CleanUp OU - only accounts FROM this OU are quarantined */
   cleanupOuId: string;
-  /** ARN of the ISB intermediate role in Hub account for role chaining */
-  intermediateRoleArn: string;
-  /** ARN of the ISB role in Org Management account */
-  orgMgtRoleArn: string;
+  /** Org Management account ID (for constructing cross-account role ARNs) */
+  orgMgmtAccountId: string;
   /** Email address for SNS alert notifications (optional) */
   snsAlertEmail?: string;
   /** ARN of KMS key encrypting the DynamoDB table (optional - required if table uses CMK) */
@@ -226,6 +224,11 @@ export class HubStack extends cdk.Stack {
       },
     };
 
+    // Predictable role names for self-managed cross-account role chain
+    const intermediateRoleName = `${this.resourcePrefix}-intermediate-${props.environment}`;
+    const orgMgtRoleName = `${this.resourcePrefix}-org-mgt-${props.environment}`;
+    const orgMgtRoleArn = `arn:aws:iam::${props.orgMgmtAccountId}:role/${orgMgtRoleName}`;
+
     // Environment variables shared by both Lambdas (FR26)
     const commonEnvVars = {
       ACCOUNT_TABLE_NAME: props.accountTableName,
@@ -233,8 +236,8 @@ export class HubStack extends cdk.Stack {
       AVAILABLE_OU_ID: props.availableOuId,
       QUARANTINE_OU_ID: props.quarantineOuId,
       CLEANUP_OU_ID: props.cleanupOuId,
-      INTERMEDIATE_ROLE_ARN: props.intermediateRoleArn,
-      ORG_MGT_ROLE_ARN: props.orgMgtRoleArn,
+      INTERMEDIATE_ROLE_ARN: `arn:aws:iam::${this.account}:role/${intermediateRoleName}`,
+      ORG_MGT_ROLE_ARN: orgMgtRoleArn,
       USER_AGENT_EXTRA: 'isb-billing-separator/1.0.0',
     };
 
@@ -277,13 +280,27 @@ export class HubStack extends cdk.Stack {
     // IAM Permissions (NFR-S1, NFR-S3, FR31-33)
     // ========================================
 
-    // Grant STS:AssumeRole for cross-account access (FR31)
-    const assumeRolePolicy = new iam.PolicyStatement({
-      actions: ['sts:AssumeRole'],
-      resources: [props.intermediateRoleArn],
+    // Self-managed intermediate role for cross-account access (FR31)
+    // Trust policy allows the Lambda execution roles to assume it;
+    // permission grants sts:AssumeRole on the org mgt role in the OrgMgmt account
+    new iam.Role(this, 'BillingSepIntermediateRole', {
+      roleName: intermediateRoleName,
+      assumedBy: new iam.CompositePrincipal(
+        new iam.ArnPrincipal(this.quarantineLambda.role!.roleArn),
+        new iam.ArnPrincipal(this.unquarantineLambda.role!.roleArn),
+      ),
+      description: 'Intermediate role for billing separator cross-account role chaining',
+      inlinePolicies: {
+        AssumeOrgMgtRole: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: ['sts:AssumeRole'],
+              resources: [orgMgtRoleArn],
+            }),
+          ],
+        }),
+      },
     });
-    this.quarantineLambda.addToRolePolicy(assumeRolePolicy);
-    this.unquarantineLambda.addToRolePolicy(assumeRolePolicy);
 
     // Grant DynamoDB read/write access for account table (to update quarantine status)
     const dynamoDbPolicy = new iam.PolicyStatement({
@@ -444,6 +461,16 @@ export class HubStack extends cdk.Stack {
       metricNamespace: 'ISB/BillingSeparator',
       metricName: 'QuarantineSuccessCount',
       filterPattern: logs.FilterPattern.literal('{ $.action = "QUARANTINE_COMPLETE" }'),
+      metricValue: '1',
+    });
+
+    // Metric filter for quarantine bypass via do-not-separate tag
+    // Counts QUARANTINE_BYPASS_TAG log entries to track bypasses
+    new logs.MetricFilter(this, 'QuarantineBypassTagMetricFilter', {
+      logGroup: this.quarantineLambda.logGroup,
+      metricNamespace: 'ISB/BillingSeparator',
+      metricName: 'QuarantineBypassTagCount',
+      filterPattern: logs.FilterPattern.literal('{ $.action = "QUARANTINE_BYPASS_TAG" }'),
       metricValue: '1',
     });
 

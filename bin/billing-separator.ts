@@ -17,10 +17,6 @@ const availableOuId = app.node.tryGetContext('availableOuId');
 const quarantineOuId = app.node.tryGetContext('quarantineOuId');
 const cleanupOuId = app.node.tryGetContext('cleanupOuId');
 
-// Cross-Account IAM
-const intermediateRoleArn = app.node.tryGetContext('intermediateRoleArn');
-const orgMgtRoleArn = app.node.tryGetContext('orgMgtRoleArn');
-
 // Alerting (optional)
 const snsAlertEmail = app.node.tryGetContext('snsAlertEmail');
 
@@ -51,9 +47,7 @@ if (!sandboxOuId) missingHubContext.push('sandboxOuId');
 if (!availableOuId) missingHubContext.push('availableOuId');
 if (!quarantineOuId) missingHubContext.push('quarantineOuId');
 if (!cleanupOuId) missingHubContext.push('cleanupOuId');
-if (!intermediateRoleArn) missingHubContext.push('intermediateRoleArn');
-if (!orgMgtRoleArn) missingHubContext.push('orgMgtRoleArn');
-
+if (!orgMgmtAccountId) missingHubContext.push('orgMgmtAccountId');
 if (missingHubContext.length > 0) {
   throw new Error(
     `Missing required CDK context values: ${missingHubContext.join(', ')}.\n` +
@@ -70,8 +64,7 @@ const hubStack = new HubStack(app, `isb-billing-separator-hub-${environment}`, {
   availableOuId,
   quarantineOuId,
   cleanupOuId,
-  intermediateRoleArn,
-  orgMgtRoleArn,
+  orgMgmtAccountId,
   snsAlertEmail, // Optional: omit for no email notifications
   accountTableKmsKeyArn, // Optional: required if DynamoDB table uses CMK encryption
   env: {
@@ -81,14 +74,6 @@ const hubStack = new HubStack(app, `isb-billing-separator-hub-${environment}`, {
   description: 'ISB Billing Separator Hub - Main compute resources',
   crossRegionReferences: true,
 });
-
-// Validate required context for OrgMgmtStack
-if (!orgMgmtAccountId) {
-  throw new Error(
-    `Missing required CDK context value: orgMgmtAccountId.\n` +
-      `Copy cdk.context.example.json to cdk.context.json and configure this value.`
-  );
-}
 
 // Org Management Stack - Event forwarding (deploys to Org Mgmt account, us-east-1)
 const orgMgmtStack = new OrgMgmtStack(app, `isb-billing-separator-org-mgmt-${environment}`, {
