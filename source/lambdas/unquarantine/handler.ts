@@ -186,7 +186,7 @@ async function deleteScheduler(
       error: errorMessage,
       schedulerName,
     });
-    throw new Error(`Scheduler deletion failed for ${schedulerName}: ${errorMessage}`);
+    throw new Error(`Scheduler deletion failed for ${schedulerName}: ${errorMessage}`, { cause: error });
   }
 }
 

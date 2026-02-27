@@ -331,7 +331,7 @@ async function processEvent(
     });
 
     // Re-throw to trigger retry - the move was successful but we need the scheduler
-    throw new Error(`Scheduler creation failed for account ${accountId}: ${errorMessage}`);
+    throw new Error(`Scheduler creation failed for account ${accountId}: ${errorMessage}`, { cause: error });
   }
 
   return {
