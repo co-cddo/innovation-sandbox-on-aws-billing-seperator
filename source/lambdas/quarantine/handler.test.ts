@@ -17,6 +17,8 @@ jest.unstable_mockModule('@aws-sdk/client-organizations', () => ({
   MoveAccountCommand: jest.fn(),
   ListOrganizationalUnitsForParentCommand: jest.fn(),
   paginateListOrganizationalUnitsForParent: jest.fn(),
+  ListTagsForResourceCommand: jest.fn(),
+  UntagResourceCommand: jest.fn(),
 }));
 
 jest.unstable_mockModule('@aws-sdk/client-scheduler', () => ({
@@ -144,6 +146,9 @@ describe('QuarantineLambda Handler', () => {
     });
 
     mockSendScheduler.mockResolvedValue({});
+
+    // Default: no bypass tag on account
+    mockSendOrgs.mockResolvedValue({ Tags: [] });
   });
 
   afterEach(() => {
@@ -304,6 +309,8 @@ describe('QuarantineLambda Handler', () => {
         MoveAccountCommand: jest.fn(),
         ListOrganizationalUnitsForParentCommand: jest.fn(),
         paginateListOrganizationalUnitsForParent: jest.fn(),
+        ListTagsForResourceCommand: jest.fn(),
+        UntagResourceCommand: jest.fn(),
       }));
 
       const { handler } = await import('./handler.js');
@@ -312,6 +319,95 @@ describe('QuarantineLambda Handler', () => {
 
       // Should throw or return all failures
       await expect(handler(sqsEvent)).rejects.toThrow('Missing required environment variables');
+    });
+  });
+
+  describe('bypass tag: do-not-separate', () => {
+    it('should skip quarantine and remove tag when do-not-separate tag is present', async () => {
+      // Mock tag present on the account
+      mockSendOrgs.mockResolvedValue({
+        Tags: [{ Key: 'do-not-separate', Value: '' }],
+      });
+
+      const { handler } = await import('./handler.js');
+
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      // Should succeed with no failures
+      expect(result.batchItemFailures).toHaveLength(0);
+
+      // Should have called ListTagsForResource and UntagResource
+      expect(mockSendOrgs).toHaveBeenCalledTimes(2);
+
+      // Should NOT have moved to Quarantine OU
+      expect(mockTransactionalMoveAccount).not.toHaveBeenCalled();
+
+      // Should NOT have created a scheduler
+      expect(mockSendScheduler).not.toHaveBeenCalled();
+    });
+
+    it('should proceed with normal quarantine when tag is absent', async () => {
+      // Default mock already returns empty Tags
+      const { handler } = await import('./handler.js');
+
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      // Should succeed
+      expect(result.batchItemFailures).toHaveLength(0);
+
+      // Should have quarantined the account
+      expect(mockTransactionalMoveAccount).toHaveBeenCalledWith(
+        expect.objectContaining({ awsAccountId: '417845783913' }),
+        'Available',
+        'Quarantine'
+      );
+
+      // Should have created a scheduler
+      expect(mockSendScheduler).toHaveBeenCalled();
+    });
+
+    it('should proceed with quarantine when tag check API fails (fail-safe)', async () => {
+      // Mock tag check failure
+      mockSendOrgs.mockRejectedValueOnce(new Error('AccessDeniedException'));
+      // Subsequent orgs calls succeed (for OU listing etc.)
+      mockSendOrgs.mockResolvedValue({ Tags: [] });
+
+      const { handler } = await import('./handler.js');
+
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      // Should succeed (quarantine proceeds)
+      expect(result.batchItemFailures).toHaveLength(0);
+
+      // Should have quarantined the account
+      expect(mockTransactionalMoveAccount).toHaveBeenCalled();
+    });
+
+    it('should still skip quarantine when tag removal fails', async () => {
+      // First call: ListTagsForResource returns tag
+      mockSendOrgs
+        .mockResolvedValueOnce({
+          Tags: [{ Key: 'do-not-separate', Value: '' }],
+        })
+        // Second call: UntagResource fails
+        .mockRejectedValueOnce(new Error('UntagResource failed'));
+
+      const { handler } = await import('./handler.js');
+
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      // Should succeed (bypass still happens)
+      expect(result.batchItemFailures).toHaveLength(0);
+
+      // Should NOT have moved to Quarantine OU
+      expect(mockTransactionalMoveAccount).not.toHaveBeenCalled();
+
+      // Should NOT have created a scheduler
+      expect(mockSendScheduler).not.toHaveBeenCalled();
     });
   });
 

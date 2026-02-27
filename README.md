@@ -226,6 +226,39 @@ cdk destroy --all
 
 **Important**: Accounts currently in Quarantine OU will remain there. See [test/integration/README.md](test/integration/README.md) for manual reconciliation steps.
 
+## Quarantine Bypass
+
+New accounts with no billing history don't need the 72-hour quarantine. You can skip quarantine on a per-account, one-shot basis using the `do-not-separate` tag.
+
+### How to use
+
+1. **Tag the account** in AWS Organizations:
+   ```bash
+   aws organizations tag-resource \
+     --resource-id 023138541607 \
+     --tags Key=do-not-separate,Value=
+   ```
+
+2. **Let the normal lifecycle run.** When the account moves from CleanUp → Available, the quarantine handler will:
+   - Detect the `do-not-separate` tag
+   - Skip the 72-hour quarantine (the account stays in Available)
+   - **Remove the tag** so subsequent cycles enforce quarantine normally
+
+3. The bypass is **one-shot** — the tag is consumed on use. To bypass again, re-tag the account.
+
+### Fail-safe behaviour
+
+- If the tag check API call fails (e.g. missing IAM permissions), quarantine proceeds normally and a `TAG_CHECK_FAILED` log entry is emitted.
+- If the tag removal fails after bypass, quarantine is still skipped and a `TAG_REMOVAL_FAILED` warning is logged. The tag will remain but won't cause issues — it will simply trigger another bypass on the next cycle.
+
+### IAM prerequisites
+
+The cross-account role in the Organization Management account needs:
+- `organizations:ListTagsForResource`
+- `organizations:UntagResource`
+
+These calls go through the existing credential chain (intermediate role → org management role). If the permissions aren't present, the fail-safe behaviour kicks in.
+
 ## Known Limitations
 
 This is a bolt-on workaround with inherent limitations:

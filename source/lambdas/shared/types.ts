@@ -114,7 +114,7 @@ export interface QuarantineResult {
   /** Whether quarantine was successful */
   success: boolean;
   /** The action taken */
-  action: 'QUARANTINED' | 'SKIPPED' | 'ERROR';
+  action: 'QUARANTINED' | 'SKIPPED' | 'BYPASS_TAG_SKIPPED' | 'ERROR';
   /** The account ID that was processed */
   accountId: string;
   /** Additional message describing the result */

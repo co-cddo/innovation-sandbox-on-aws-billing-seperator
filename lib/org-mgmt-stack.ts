@@ -97,6 +97,34 @@ export class OrgMgmtStack extends cdk.Stack {
       })
     );
 
+    // Self-managed org management role for billing separator
+    // Trust policy allows the intermediate role in the Hub account to assume it
+    const resourcePrefix = this.resourcePrefix;
+    const orgMgtRoleName = `${resourcePrefix}-org-mgt-${props.environment}`;
+    const intermediateRoleArn = `arn:aws:iam::${props.hubAccountId}:role/${resourcePrefix}-intermediate-${props.environment}`;
+
+    new iam.Role(this, 'BillingSepOrgMgtRole', {
+      roleName: orgMgtRoleName,
+      assumedBy: new iam.ArnPrincipal(intermediateRoleArn),
+      description: 'Org management role for billing separator Organizations API access',
+      inlinePolicies: {
+        OrganizationsAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: [
+                'organizations:MoveAccount',
+                'organizations:DescribeOrganizationalUnit',
+                'organizations:ListOrganizationalUnitsForParent',
+                'organizations:ListTagsForResource',
+                'organizations:UntagResource',
+              ],
+              resources: ['*'],
+            }),
+          ],
+        }),
+      },
+    });
+
     // Outputs
     new cdk.CfnOutput(this, 'StackName', {
       value: this.stackName,

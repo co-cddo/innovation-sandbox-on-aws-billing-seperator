@@ -8,7 +8,11 @@
  */
 
 import type { SQSEvent, SQSBatchResponse } from 'aws-lambda';
-import { OrganizationsClient } from '@aws-sdk/client-organizations';
+import {
+  OrganizationsClient,
+  ListTagsForResourceCommand,
+  UntagResourceCommand,
+} from '@aws-sdk/client-organizations';
 import { SchedulerClient, CreateScheduleCommand, FlexibleTimeWindowMode } from '@aws-sdk/client-scheduler';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
@@ -29,6 +33,7 @@ import {
   SCHEDULER_GROUP,
   SCHEDULER_NAME_PREFIX,
   USER_AGENT_SUFFIX,
+  BYPASS_QUARANTINE_TAG_KEY,
 } from '../shared/constants.js';
 
 /**
@@ -109,7 +114,7 @@ function createServices(env: LambdaEnv) {
   // Scheduler client (local to Hub account)
   const schedulerClient = new SchedulerClient({});
 
-  return { sandboxOuService, accountStore, schedulerClient };
+  return { sandboxOuService, accountStore, schedulerClient, orgsClient };
 }
 
 /**
@@ -133,6 +138,34 @@ function log(
 }
 
 /**
+ * Checks whether the account has the bypass quarantine tag in AWS Organizations.
+ */
+async function hasBypassTag(
+  orgsClient: OrganizationsClient,
+  accountId: string
+): Promise<boolean> {
+  const response = await orgsClient.send(
+    new ListTagsForResourceCommand({ ResourceId: accountId })
+  );
+  return (response.Tags ?? []).some((tag) => tag.Key === BYPASS_QUARANTINE_TAG_KEY);
+}
+
+/**
+ * Removes the bypass quarantine tag from the account in AWS Organizations.
+ */
+async function removeBypassTag(
+  orgsClient: OrganizationsClient,
+  accountId: string
+): Promise<void> {
+  await orgsClient.send(
+    new UntagResourceCommand({
+      ResourceId: accountId,
+      TagKeys: [BYPASS_QUARANTINE_TAG_KEY],
+    })
+  );
+}
+
+/**
  * Processes a single parsed event and returns the result.
  */
 async function processEvent(
@@ -141,7 +174,7 @@ async function processEvent(
   env: LambdaEnv
 ): Promise<QuarantineResult> {
   const { accountId, sourceParentId } = event;
-  const { sandboxOuService, accountStore, schedulerClient } = services;
+  const { sandboxOuService, accountStore, schedulerClient, orgsClient } = services;
 
   log(LOG_ACTIONS.QUARANTINE_START, accountId, {
     sourceParentId,
@@ -196,6 +229,39 @@ async function processEvent(
       action: 'SKIPPED',
       accountId,
       message: `Skipping non-CleanUp move: source ${sourceParentId} is not CleanUp OU`,
+    };
+  }
+
+  // Step 2b: Check for bypass quarantine tag (do-not-separate)
+  let bypassTag = false;
+  try {
+    bypassTag = await hasBypassTag(orgsClient, accountId);
+  } catch (error) {
+    // Fail-safe: if tag check fails, proceed with quarantine
+    log(LOG_ACTIONS.TAG_CHECK_FAILED, accountId, {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+
+  if (bypassTag) {
+    log(LOG_ACTIONS.QUARANTINE_BYPASS_TAG, accountId, {
+      tag: BYPASS_QUARANTINE_TAG_KEY,
+    });
+
+    try {
+      await removeBypassTag(orgsClient, accountId);
+    } catch (error) {
+      log(LOG_ACTIONS.TAG_REMOVAL_FAILED, accountId, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        tag: BYPASS_QUARANTINE_TAG_KEY,
+      });
+    }
+
+    return {
+      success: true,
+      action: 'BYPASS_TAG_SKIPPED',
+      accountId,
+      message: `Quarantine bypassed: account tagged with '${BYPASS_QUARANTINE_TAG_KEY}'`,
     };
   }
 

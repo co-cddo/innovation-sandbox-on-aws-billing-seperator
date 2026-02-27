@@ -12,8 +12,7 @@ const defaultHubStackProps = {
   availableOuId: 'ou-test-available',
   quarantineOuId: 'ou-test-quarantine',
   cleanupOuId: 'ou-test-cleanup',
-  intermediateRoleArn: 'arn:aws:iam::123456789012:role/ISB-IntermediateRole',
-  orgMgtRoleArn: 'arn:aws:iam::999888777666:role/ISB-OrgManagementRole',
+  orgMgmtAccountId: '999888777666',
   env: { account: '123456789012', region: 'us-west-2' },
 };
 
@@ -158,8 +157,8 @@ describe('HubStack', () => {
             AVAILABLE_OU_ID: 'ou-test-available',
             QUARANTINE_OU_ID: 'ou-test-quarantine',
             CLEANUP_OU_ID: 'ou-test-cleanup',
-            INTERMEDIATE_ROLE_ARN: 'arn:aws:iam::123456789012:role/ISB-IntermediateRole',
-            ORG_MGT_ROLE_ARN: 'arn:aws:iam::999888777666:role/ISB-OrgManagementRole',
+            INTERMEDIATE_ROLE_ARN: 'arn:aws:iam::123456789012:role/isb-billing-sep-intermediate-test',
+            ORG_MGT_ROLE_ARN: 'arn:aws:iam::999888777666:role/isb-billing-sep-org-mgt-test',
             SCHEDULER_GROUP: 'isb-billing-separator',
           }),
         },
@@ -218,17 +217,44 @@ describe('HubStack', () => {
   });
 
   describe('IAM Permissions (NFR-S1, FR31)', () => {
-    it('grants Lambda permission to assume intermediate role (FR31)', () => {
-      template.hasResourceProperties('AWS::IAM::Policy', {
-        PolicyDocument: {
+    it('creates a self-managed intermediate role with correct name (FR31)', () => {
+      template.hasResourceProperties('AWS::IAM::Role', {
+        RoleName: 'isb-billing-sep-intermediate-test',
+        Description: Match.stringLikeRegexp('Intermediate.*cross-account'),
+      });
+    });
+
+    it('intermediate role trusts the Lambda execution roles', () => {
+      template.hasResourceProperties('AWS::IAM::Role', {
+        RoleName: 'isb-billing-sep-intermediate-test',
+        AssumeRolePolicyDocument: {
           Statement: Match.arrayWith([
             Match.objectLike({
               Action: 'sts:AssumeRole',
               Effect: 'Allow',
-              Resource: 'arn:aws:iam::123456789012:role/ISB-IntermediateRole',
             }),
           ]),
         },
+      });
+    });
+
+    it('intermediate role can assume the org mgt role', () => {
+      template.hasResourceProperties('AWS::IAM::Role', {
+        RoleName: 'isb-billing-sep-intermediate-test',
+        Policies: Match.arrayWith([
+          Match.objectLike({
+            PolicyName: 'AssumeOrgMgtRole',
+            PolicyDocument: {
+              Statement: Match.arrayWith([
+                Match.objectLike({
+                  Action: 'sts:AssumeRole',
+                  Effect: 'Allow',
+                  Resource: 'arn:aws:iam::999888777666:role/isb-billing-sep-org-mgt-test',
+                }),
+              ]),
+            },
+          }),
+        ]),
       });
     });
 
@@ -374,6 +400,19 @@ describe('HubStack', () => {
       });
     });
 
+    it('creates metric filter for quarantine bypass tag tracking', () => {
+      template.hasResourceProperties('AWS::Logs::MetricFilter', {
+        FilterPattern: '{ $.action = "QUARANTINE_BYPASS_TAG" }',
+        MetricTransformations: Match.arrayWith([
+          Match.objectLike({
+            MetricNamespace: 'ISB/BillingSeparator',
+            MetricName: 'QuarantineBypassTagCount',
+            MetricValue: '1',
+          }),
+        ]),
+      });
+    });
+
     it('creates metric filter for unquarantine success tracking', () => {
       template.hasResourceProperties('AWS::Logs::MetricFilter', {
         FilterPattern: '{ $.action = "UNQUARANTINE_COMPLETE" }',
@@ -459,6 +498,56 @@ describe('OrgMgmtStack', () => {
             }),
           ]),
         },
+      });
+    });
+
+    it('creates a self-managed org mgt role with correct name', () => {
+      template.hasResourceProperties('AWS::IAM::Role', {
+        RoleName: 'isb-billing-sep-org-mgt-test',
+        Description: Match.stringLikeRegexp('Org management.*billing separator'),
+      });
+    });
+
+    it('org mgt role trusts the intermediate role from Hub account', () => {
+      template.hasResourceProperties('AWS::IAM::Role', {
+        RoleName: 'isb-billing-sep-org-mgt-test',
+        AssumeRolePolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Action: 'sts:AssumeRole',
+              Effect: 'Allow',
+              Principal: {
+                AWS: 'arn:aws:iam::123456789012:role/isb-billing-sep-intermediate-test',
+              },
+            }),
+          ]),
+        },
+      });
+    });
+
+    it('org mgt role has Organizations permissions', () => {
+      template.hasResourceProperties('AWS::IAM::Role', {
+        RoleName: 'isb-billing-sep-org-mgt-test',
+        Policies: Match.arrayWith([
+          Match.objectLike({
+            PolicyName: 'OrganizationsAccess',
+            PolicyDocument: {
+              Statement: Match.arrayWith([
+                Match.objectLike({
+                  Action: [
+                    'organizations:MoveAccount',
+                    'organizations:DescribeOrganizationalUnit',
+                    'organizations:ListOrganizationalUnitsForParent',
+                    'organizations:ListTagsForResource',
+                    'organizations:UntagResource',
+                  ],
+                  Effect: 'Allow',
+                  Resource: '*',
+                }),
+              ]),
+            },
+          }),
+        ]),
       });
     });
 
