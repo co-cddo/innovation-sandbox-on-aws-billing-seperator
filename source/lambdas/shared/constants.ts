@@ -94,6 +94,9 @@ export const ENV_KEYS = {
 
   /** Custom user agent suffix for AWS SDK calls */
   USER_AGENT_EXTRA: 'USER_AGENT_EXTRA',
+
+  /** Whether to eject accounts after cleanup instead of quarantining */
+  EJECT_AFTER_CLEANUP: 'EJECT_AFTER_CLEANUP',
 } as const;
 
 /**
@@ -145,4 +148,13 @@ export const LOG_ACTIONS = {
 
   /** Failed to remove bypass tag after skipping quarantine */
   TAG_REMOVAL_FAILED: 'TAG_REMOVAL_FAILED',
+
+  /** Starting eject process for an account (ejectAfterCleanup enabled) */
+  EJECT_START: 'EJECT_START',
+
+  /** Eject completed successfully */
+  EJECT_COMPLETE: 'EJECT_COMPLETE',
+
+  /** Eject failed */
+  EJECT_FAILED: 'EJECT_FAILED',
 } as const;

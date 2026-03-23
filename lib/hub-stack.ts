@@ -38,6 +38,8 @@ export interface HubStackProps extends cdk.StackProps {
   cleanupOuId: string;
   /** Org Management account ID (for constructing cross-account role ARNs) */
   orgMgmtAccountId: string;
+  /** When true, eject accounts after cleanup instead of quarantining. Default: false */
+  ejectAfterCleanup?: boolean;
   /** Email address for SNS alert notifications (optional) */
   snsAlertEmail?: string;
   /** ARN of KMS key encrypting the DynamoDB table (optional - required if table uses CMK) */
@@ -253,6 +255,7 @@ export class HubStack extends cdk.Stack {
         SCHEDULER_GROUP: this.schedulerGroup.name!,
         SCHEDULER_ROLE_ARN: schedulerExecutionRole.roleArn,
         UNQUARANTINE_LAMBDA_ARN: '', // Will be updated after UnquarantineLambda is created
+        EJECT_AFTER_CLEANUP: String(props.ejectAfterCleanup ?? false),
       },
     });
 
@@ -304,7 +307,7 @@ export class HubStack extends cdk.Stack {
 
     // Grant DynamoDB read/write access for account table (to update quarantine status)
     const dynamoDbPolicy = new iam.PolicyStatement({
-      actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
+      actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem'],
       resources: [
         `arn:aws:dynamodb:${this.region}:${this.account}:table/${props.accountTableName}`,
         `arn:aws:dynamodb:${this.region}:${this.account}:table/${props.accountTableName}/index/*`,
@@ -471,6 +474,15 @@ export class HubStack extends cdk.Stack {
       metricNamespace: 'ISB/BillingSeparator',
       metricName: 'QuarantineBypassTagCount',
       filterPattern: logs.FilterPattern.literal('{ $.action = "QUARANTINE_BYPASS_TAG" }'),
+      metricValue: '1',
+    });
+
+    // Metric filter for successful eject operations (ejectAfterCleanup mode)
+    new logs.MetricFilter(this, 'EjectSuccessMetricFilter', {
+      logGroup: this.quarantineLambda.logGroup,
+      metricNamespace: 'ISB/BillingSeparator',
+      metricName: 'EjectSuccessCount',
+      filterPattern: logs.FilterPattern.literal('{ $.action = "EJECT_COMPLETE" }'),
       metricValue: '1',
     });
 

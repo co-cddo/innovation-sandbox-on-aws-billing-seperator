@@ -33,6 +33,9 @@
   "orgMgtRoleArn": "arn:aws:iam::222222222222:role/ISB-OrgManagementRole",
   "_orgMgtRoleArn_desc": "ARN of the ISB role in Org Management account with Organizations API access. Replace account ID.",
 
+  "ejectAfterCleanup": false,
+  "_ejectAfterCleanup_desc": "When true, accounts finishing cleanup are ejected (moved to Exit OU, deleted from DynamoDB) instead of quarantined for 91 days. Default: false.",
+
   "snsAlertEmail": "operator@example.com",
   "_snsAlertEmail_desc": "Email address to receive CloudWatch alarm notifications for quarantine issues.",
 

@@ -45,6 +45,11 @@ declare module '@amzn/innovation-sandbox-commons/isb-services/sandbox-ou-service
     });
 
     getIsbOu(ouName: IsbOu): Promise<OrganizationalUnit>;
+    performAccountMoveAction(
+      accountId: string,
+      sourceOu: IsbOu,
+      destinationOu: IsbOu
+    ): Promise<void>;
     transactionalMoveAccount(
       account: SandboxAccount,
       sourceOu: IsbOu,
@@ -76,6 +81,7 @@ declare module '@amzn/innovation-sandbox-commons/data/sandbox-account/dynamo-san
 
     get(accountId: string): Promise<{ result: SandboxAccount | null }>;
     put(account: SandboxAccount): Promise<{ oldItem?: unknown; newItem: SandboxAccount }>;
+    delete(accountId: string): Promise<unknown>;
     findByStatus(args: {
       status: string;
       pageIdentifier?: string;

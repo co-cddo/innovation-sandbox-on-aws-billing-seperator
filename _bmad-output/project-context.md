@@ -215,6 +215,7 @@ import { fromTemporaryIsbOrgManagementCredentials } from "@amzn/innovation-sandb
 ### State Management
 
 - Use `transactionalMoveAccount()` for atomic OU + DynamoDB updates
+- Exception: when ejecting (`ejectAfterCleanup` mode), use `performAccountMoveAction()` for the OU move followed by `accountStore.delete()` to remove the DynamoDB record, since we are deleting (not updating) the record
 - Never modify DynamoDB directly — always use ISB services
 - OU is authoritative source of truth
 
@@ -243,6 +244,7 @@ Hub Lambda → Intermediate Role → Org Management Role → Organizations API
 2. **Account not found in DynamoDB** — Throw error for investigation
 3. **Scheduler already exists** — Check before creating, handle gracefully
 4. **Cross-account role assumption fails** — Throw for retry with full context
+5. **Eject mode enabled** — Account moved to Exit OU and deleted from DynamoDB instead of quarantined. No scheduler created. Pool must be replenished via `isb create-pool-account`
 
 ### Security Rules
 
