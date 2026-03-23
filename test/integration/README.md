@@ -119,7 +119,46 @@ aws logs filter-log-events \
 3. Logs "QUARANTINE_SKIP" with reason "Account already in Quarantine status"
 4. Returns success (no duplicate action)
 
-### Scenario 5: Error Handling & DLQ
+### Scenario 5: Eject After Cleanup Flow
+
+**Prerequisite**: `ejectAfterCleanup` must be set to `true` in `cdk.context.json` and deployed.
+
+**Trigger**: ISB moves an account from CleanUp to Available OU
+
+**Expected Behavior**:
+1. OrgMgmtStack's EventBridge rule captures the MoveAccount event
+2. Event is forwarded to HubStack's custom event bus
+3. QuarantineLambda processes the event:
+   - Validates source is CleanUp OU
+   - Detects `ejectAfterCleanup` is enabled
+   - Moves account from Available to Exit OU
+   - Deletes account record from DynamoDB
+   - No scheduler is created
+4. Account is permanently removed from the sandbox pool
+
+**Verification**:
+```bash
+# Check account OU position (should be in Exit OU)
+aws organizations list-parents --child-id <account-id>
+
+# Check DynamoDB record (should NOT exist)
+aws dynamodb get-item \
+  --table-name <account-table-name> \
+  --key '{"awsAccountId": {"S": "<account-id>"}}'
+# Should return empty response (no Item)
+
+# Check no scheduler was created for this account
+aws scheduler list-schedules \
+  --group-name isb-billing-separator
+# Should NOT contain a schedule for this account
+
+# Check CloudWatch Logs for EJECT_COMPLETE
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/isb-billing-sep-quarantine-<env> \
+  --filter-pattern "EJECT_COMPLETE"
+```
+
+### Scenario 6: Error Handling & DLQ
 
 **Trigger**: Simulate failure by revoking IAM permissions temporarily
 
@@ -155,6 +194,9 @@ aws sqs receive-message \
 | `SCHEDULER_CREATED` | EventBridge Scheduler created |
 | `SCHEDULER_CREATE_FAILED` | Scheduler creation failed |
 | `HANDLER_ERROR` | Handler error with stack trace |
+| `EJECT_START` | Eject process started (ejectAfterCleanup enabled) |
+| `EJECT_COMPLETE` | Account ejected to Exit OU and deleted from DynamoDB |
+| `EJECT_FAILED` | Eject process failed |
 
 ### UnquarantineLambda Log Actions
 

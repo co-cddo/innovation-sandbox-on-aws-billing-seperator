@@ -2,7 +2,7 @@
 
 > **This is a temporary workaround.** This entire repository should be archived and the infrastructure destroyed once [aws-solutions/innovation-sandbox-on-aws#70](https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/70) is resolved with native cooldown support in ISB. We look forward to deleting all of this.
 
-A stop-gap solution that enforces billing and quota period boundaries for Innovation Sandbox (ISB) accounts by quarantining them for 91 days after cleanup.
+A stop-gap solution that enforces billing and quota period boundaries for Innovation Sandbox (ISB) accounts by quarantining them for 91 days after cleanup, or optionally ejecting them from the pool entirely.
 
 ## Why This Exists
 
@@ -23,52 +23,59 @@ This workaround intercepts the ISB account lifecycle and enforces a hard 91-day 
 
 The Innovation Sandbox (ISB) solution enables rapid AWS account provisioning for experimentation. When a sandbox is returned to the pool, ISB immediately moves it to the Available OU for reuse. This can cause billing attribution issues when the previous user's charges appear on the next user's invoice.
 
-The Billing Separator intercepts accounts transitioning from CleanUp to Available and holds them in a temporary Quarantine OU for 91 days. This ensures billing data from the previous usage period settles before the account is reassigned.
+The Billing Separator intercepts accounts transitioning from CleanUp to Available. By default, it holds them in a temporary Quarantine OU for 91 days to ensure billing data from the previous usage period settles before the account is reassigned. Alternatively, with `ejectAfterCleanup` enabled, it permanently ejects the account from the pool (moves to Exit OU, deletes from DynamoDB) — useful when accounts are disposable and the pool is replenished via `isb create-pool-account`.
 
 ## Architecture
 
 ```
                     Org Management Account (us-east-1)
-                    ┌─────────────────────────────────┐
-                    │  CloudTrail MoveAccount Events  │
-                    │              │                  │
-                    │              ▼                  │
-                    │     EventBridge Rule            │
-                    │     (OrgMgmtStack)              │
-                    │              │                  │
-                    └──────────────┼──────────────────┘
+                    ┌─────────────────────────────────────┐
+                    │  CloudTrail MoveAccount Events      │
+                    │              │                      │
+                    │              ▼                      │
+                    │     EventBridge Rule                │
+                    │     (OrgMgmtStack)                  │
+                    │              │                      │
+                    └──────────────┼──────────────────────┘
                                    │ Cross-account
                                    │ event forwarding
-                    ┌──────────────┼──────────────────┐
-                    │              ▼                  │
-                    │     Custom Event Bus            │
-                    │              │                  │
-Hub Account         │              ▼                  │
-(us-west-2)         │     EventBridge Rule            │
-                    │              │                  │
-                    │              ▼                  │
-                    │         SQS Queue               │
-                    │              │                  │
-                    │              ▼                  │
-                    │    QuarantineLambda             │
-                    │              │                  │
-                    │    ┌─────────┴─────────┐        │
-                    │    │                   │        │
-                    │    ▼                   ▼        │
-                    │  Move to           Create       │
-                    │  Quarantine OU     Scheduler    │
-                    │                        │        │
-                    │                   91 days       │
-                    │                        │        │
-                    │                        ▼        │
-                    │              UnquarantineLambda │
-                    │                        │        │
-                    │                        ▼        │
-                    │              Move to Available  │
-                    │                   OU            │
-                    │                                 │
-                    │   (HubStack)                    │
-                    └─────────────────────────────────┘
+                    ┌──────────────┼──────────────────────┐
+                    │              ▼                      │
+                    │     Custom Event Bus                │
+                    │              │                      │
+Hub Account         │              ▼                      │
+(us-west-2)         │     EventBridge Rule                │
+                    │              │                      │
+                    │              ▼                      │
+                    │         SQS Queue                   │
+                    │              │                      │
+                    │              ▼                      │
+                    │    QuarantineLambda                 │
+                    │              │                      │
+                    │    ┌─────────┴──────────┐           │
+                    │    │                    │           │
+                    │    ▼                    ▼           │
+                    │  ejectAfterCleanup   ejectAfterCleanup
+                    │  = false (default)   = true        │
+                    │    │                    │           │
+                    │    ▼                    ▼           │
+                    │  Move to            Move to        │
+                    │  Quarantine OU      Exit OU +      │
+                    │    │                Delete from    │
+                    │    ▼                DynamoDB       │
+                    │  Create                            │
+                    │  Scheduler                         │
+                    │    │                               │
+                    │  91 days                           │
+                    │    │                               │
+                    │    ▼                               │
+                    │  UnquarantineLambda                │
+                    │    │                               │
+                    │    ▼                               │
+                    │  Move to Available OU              │
+                    │                                    │
+                    │   (HubStack)                       │
+                    └────────────────────────────────────┘
 ```
 
 ### Components
@@ -82,8 +89,8 @@ Hub Account         │              ▼                  │
 - Custom EventBridge event bus receiving forwarded events
 - EventBridge rule routing events to SQS queue
 - SQS queue with DLQ for event buffering
-- QuarantineLambda: Intercepts and quarantines accounts
-- UnquarantineLambda: Releases accounts after 91 days
+- QuarantineLambda: Intercepts accounts — quarantines or ejects depending on config
+- UnquarantineLambda: Releases quarantined accounts after 91 days
 - EventBridge Scheduler group for delayed releases
 - CloudWatch alarms and SNS topic for monitoring
 
@@ -172,6 +179,7 @@ All configuration is provided via CDK context. See `cdk.context.example.json` fo
 | `cleanupOuId` | CleanUp OU ID |
 | `intermediateRoleArn` | Hub account intermediate role ARN |
 | `orgMgtRoleArn` | Org Management account role ARN |
+| `ejectAfterCleanup` | (Optional) When `true`, eject accounts after cleanup instead of quarantining. Default: `false` |
 | `snsAlertEmail` | (Optional) Email for alarm notifications |
 
 ## Testing
@@ -204,6 +212,8 @@ The solution creates alarms for:
 
 Custom metrics in `ISB/BillingSeparator` namespace:
 - `QuarantineSuccessCount`: Successful quarantine operations
+- `EjectSuccessCount`: Successful eject operations (when `ejectAfterCleanup` is enabled)
+- `QuarantineBypassTagCount`: Quarantine/eject bypassed via `do-not-separate` tag
 - `UnquarantineSuccessCount`: Successful release operations
 
 ### X-Ray Tracing
@@ -224,11 +234,11 @@ Or using CDK directly:
 cdk destroy --all
 ```
 
-**Important**: Accounts currently in Quarantine OU will remain there. See [test/integration/README.md](test/integration/README.md) for manual reconciliation steps.
+**Important**: If using quarantine mode (default), accounts currently in Quarantine OU will remain there. See [test/integration/README.md](test/integration/README.md) for manual reconciliation steps. If using `ejectAfterCleanup` mode, ejected accounts are already in the Exit OU and removed from DynamoDB — no reconciliation needed.
 
 ## Quarantine Bypass
 
-New accounts with no billing history don't need the 91-day quarantine. You can skip quarantine on a per-account, one-shot basis using the `do-not-separate` tag.
+New accounts with no billing history don't need the 91-day quarantine (or ejection). You can skip processing on a per-account, one-shot basis using the `do-not-separate` tag. This works regardless of whether `ejectAfterCleanup` is enabled — tagged accounts skip both quarantine and ejection.
 
 ### How to use
 
@@ -263,10 +273,11 @@ These calls go through the existing credential chain (intermediate role → org 
 
 This is a bolt-on workaround with inherent limitations:
 
-- **Race condition**: If the account pool is exhausted and a lease request arrives between the MoveAccount event firing and this solution intercepting it (or at quarantine release time), ISB may assign the account before we can quarantine it. Low probability but possible.
+- **Race condition**: If the account pool is exhausted and a lease request arrives between the MoveAccount event firing and this solution intercepting it (or at quarantine release time), ISB may assign the account before we can quarantine/eject it. Low probability but possible.
 - **Operational complexity**: Two additional CDK stacks across two accounts to maintain.
 - **No ISB integration**: ISB doesn't know about the quarantine - its UI/API will show accounts as "Available" when they're actually quarantined.
-- **Manual reconciliation**: If this solution is removed, quarantined accounts must be manually moved to Available OU.
+- **Manual reconciliation**: If this solution is removed while using quarantine mode, quarantined accounts must be manually moved to Available OU.
+- **Pool depletion with eject mode**: When `ejectAfterCleanup` is enabled, accounts are permanently removed from the pool after each use. The pool must be replenished using `isb create-pool-account`. Ensure sufficient pool depth or automate account creation.
 
 These limitations are acceptable for our use case but highlight why native ISB support is the proper solution.
 

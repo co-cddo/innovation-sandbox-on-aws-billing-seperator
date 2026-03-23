@@ -49,7 +49,11 @@ const mockGetIsbOu: jest.Mock<any> = jest.fn();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockTransactionalMoveAccount: jest.Mock<any> = jest.fn();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockPerformAccountMoveAction: jest.Mock<any> = jest.fn();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockAccountStoreGet: jest.Mock<any> = jest.fn();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAccountStoreDelete: jest.Mock<any> = jest.fn();
 
 jest.unstable_mockModule(
   '@amzn/innovation-sandbox-commons/isb-services/sandbox-ou-service.js',
@@ -57,6 +61,7 @@ jest.unstable_mockModule(
     SandboxOuService: jest.fn().mockImplementation(() => ({
       getIsbOu: mockGetIsbOu,
       transactionalMoveAccount: mockTransactionalMoveAccount,
+      performAccountMoveAction: mockPerformAccountMoveAction,
     })),
   })
 );
@@ -66,6 +71,7 @@ jest.unstable_mockModule(
   () => ({
     DynamoSandboxAccountStore: jest.fn().mockImplementation(() => ({
       get: mockAccountStoreGet,
+      delete: mockAccountStoreDelete,
     })),
   })
 );
@@ -128,6 +134,7 @@ describe('QuarantineLambda Handler', () => {
         CleanUp: { Id: 'ou-2laj-x3o8lbk8', Name: 'CleanUp' },
         Quarantine: { Id: 'ou-2laj-quarantine', Name: 'Quarantine' },
         Available: { Id: 'ou-2laj-oihxgbtr', Name: 'Available' },
+        Exit: { Id: 'ou-2laj-exit', Name: 'Exit' },
       };
       return ous[ouName as string];
     });
@@ -146,6 +153,9 @@ describe('QuarantineLambda Handler', () => {
     });
 
     mockSendScheduler.mockResolvedValue({});
+
+    mockPerformAccountMoveAction.mockResolvedValue(undefined);
+    mockAccountStoreDelete.mockResolvedValue({});
 
     // Default: no bypass tag on account
     mockSendOrgs.mockResolvedValue({ Tags: [] });
@@ -408,6 +418,265 @@ describe('QuarantineLambda Handler', () => {
 
       // Should NOT have created a scheduler
       expect(mockSendScheduler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('eject-after-cleanup mode', () => {
+    it('should eject account when ejectAfterCleanup is enabled', async () => {
+      process.env.EJECT_AFTER_CLEANUP = 'true';
+      jest.resetModules();
+
+      // Re-apply mocks after reset
+      jest.unstable_mockModule('@aws-sdk/client-organizations', () => ({
+        OrganizationsClient: jest.fn().mockImplementation(() => ({
+          send: mockSendOrgs,
+        })),
+        MoveAccountCommand: jest.fn(),
+        ListOrganizationalUnitsForParentCommand: jest.fn(),
+        paginateListOrganizationalUnitsForParent: jest.fn(),
+        ListTagsForResourceCommand: jest.fn(),
+        UntagResourceCommand: jest.fn(),
+      }));
+      jest.unstable_mockModule('@aws-sdk/client-scheduler', () => ({
+        SchedulerClient: jest.fn().mockImplementation(() => ({
+          send: mockSendScheduler,
+        })),
+        CreateScheduleCommand: jest.fn(),
+        FlexibleTimeWindowMode: { OFF: 'OFF' },
+      }));
+      jest.unstable_mockModule('@aws-sdk/client-dynamodb', () => ({
+        DynamoDBClient: jest.fn().mockImplementation(() => ({})),
+      }));
+      jest.unstable_mockModule('@aws-sdk/lib-dynamodb', () => ({
+        DynamoDBDocumentClient: {
+          from: jest.fn().mockReturnValue({ send: mockSendDynamo }),
+        },
+        GetCommand: jest.fn(),
+        PutCommand: jest.fn(),
+      }));
+      jest.unstable_mockModule(
+        '@amzn/innovation-sandbox-commons/isb-services/sandbox-ou-service.js',
+        () => ({
+          SandboxOuService: jest.fn().mockImplementation(() => ({
+            getIsbOu: mockGetIsbOu,
+            transactionalMoveAccount: mockTransactionalMoveAccount,
+            performAccountMoveAction: mockPerformAccountMoveAction,
+          })),
+        })
+      );
+      jest.unstable_mockModule(
+        '@amzn/innovation-sandbox-commons/data/sandbox-account/dynamo-sandbox-account-store.js',
+        () => ({
+          DynamoSandboxAccountStore: jest.fn().mockImplementation(() => ({
+            get: mockAccountStoreGet,
+            delete: mockAccountStoreDelete,
+          })),
+        })
+      );
+      jest.unstable_mockModule(
+        '@amzn/innovation-sandbox-commons/utils/cross-account-roles.js',
+        () => ({
+          fromTemporaryIsbOrgManagementCredentials: jest.fn().mockReturnValue({}),
+        })
+      );
+
+      const { handler } = await import('./handler.js');
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      // Should succeed with no failures
+      expect(result.batchItemFailures).toHaveLength(0);
+
+      // Should have called performAccountMoveAction to move to Exit OU
+      expect(mockPerformAccountMoveAction).toHaveBeenCalledWith(
+        '417845783913',
+        'Available',
+        'Exit'
+      );
+
+      // Should have deleted from DynamoDB
+      expect(mockAccountStoreDelete).toHaveBeenCalledWith('417845783913');
+
+      // Should NOT have created a scheduler
+      expect(mockSendScheduler).not.toHaveBeenCalled();
+
+      // Should NOT have used transactionalMoveAccount
+      expect(mockTransactionalMoveAccount).not.toHaveBeenCalled();
+    });
+
+    it('should still respect bypass tag when eject is enabled', async () => {
+      process.env.EJECT_AFTER_CLEANUP = 'true';
+      // Mock tag present on the account
+      mockSendOrgs.mockResolvedValue({
+        Tags: [{ Key: 'do-not-separate', Value: '' }],
+      });
+
+      const { handler } = await import('./handler.js');
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      expect(result.batchItemFailures).toHaveLength(0);
+      expect(mockPerformAccountMoveAction).not.toHaveBeenCalled();
+      expect(mockAccountStoreDelete).not.toHaveBeenCalled();
+    });
+
+    it('should quarantine normally when ejectAfterCleanup is false', async () => {
+      process.env.EJECT_AFTER_CLEANUP = 'false';
+
+      const { handler } = await import('./handler.js');
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      expect(result.batchItemFailures).toHaveLength(0);
+      expect(mockTransactionalMoveAccount).toHaveBeenCalled();
+      expect(mockPerformAccountMoveAction).not.toHaveBeenCalled();
+      expect(mockAccountStoreDelete).not.toHaveBeenCalled();
+    });
+
+    it('should quarantine normally when ejectAfterCleanup env var is absent', async () => {
+      delete process.env.EJECT_AFTER_CLEANUP;
+
+      const { handler } = await import('./handler.js');
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      expect(result.batchItemFailures).toHaveLength(0);
+      expect(mockTransactionalMoveAccount).toHaveBeenCalled();
+      expect(mockPerformAccountMoveAction).not.toHaveBeenCalled();
+    });
+
+    it('should report failure when eject OU move fails', async () => {
+      process.env.EJECT_AFTER_CLEANUP = 'true';
+      jest.resetModules();
+
+      jest.unstable_mockModule('@aws-sdk/client-organizations', () => ({
+        OrganizationsClient: jest.fn().mockImplementation(() => ({
+          send: mockSendOrgs,
+        })),
+        MoveAccountCommand: jest.fn(),
+        ListOrganizationalUnitsForParentCommand: jest.fn(),
+        paginateListOrganizationalUnitsForParent: jest.fn(),
+        ListTagsForResourceCommand: jest.fn(),
+        UntagResourceCommand: jest.fn(),
+      }));
+      jest.unstable_mockModule('@aws-sdk/client-scheduler', () => ({
+        SchedulerClient: jest.fn().mockImplementation(() => ({
+          send: mockSendScheduler,
+        })),
+        CreateScheduleCommand: jest.fn(),
+        FlexibleTimeWindowMode: { OFF: 'OFF' },
+      }));
+      jest.unstable_mockModule('@aws-sdk/client-dynamodb', () => ({
+        DynamoDBClient: jest.fn().mockImplementation(() => ({})),
+      }));
+      jest.unstable_mockModule('@aws-sdk/lib-dynamodb', () => ({
+        DynamoDBDocumentClient: {
+          from: jest.fn().mockReturnValue({ send: mockSendDynamo }),
+        },
+        GetCommand: jest.fn(),
+        PutCommand: jest.fn(),
+      }));
+      jest.unstable_mockModule(
+        '@amzn/innovation-sandbox-commons/isb-services/sandbox-ou-service.js',
+        () => ({
+          SandboxOuService: jest.fn().mockImplementation(() => ({
+            getIsbOu: mockGetIsbOu,
+            transactionalMoveAccount: mockTransactionalMoveAccount,
+            performAccountMoveAction: mockPerformAccountMoveAction,
+          })),
+        })
+      );
+      jest.unstable_mockModule(
+        '@amzn/innovation-sandbox-commons/data/sandbox-account/dynamo-sandbox-account-store.js',
+        () => ({
+          DynamoSandboxAccountStore: jest.fn().mockImplementation(() => ({
+            get: mockAccountStoreGet,
+            delete: mockAccountStoreDelete,
+          })),
+        })
+      );
+      jest.unstable_mockModule(
+        '@amzn/innovation-sandbox-commons/utils/cross-account-roles.js',
+        () => ({
+          fromTemporaryIsbOrgManagementCredentials: jest.fn().mockReturnValue({}),
+        })
+      );
+
+      mockPerformAccountMoveAction.mockRejectedValue(new Error('MoveAccount failed'));
+
+      const { handler } = await import('./handler.js');
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      expect(result.batchItemFailures).toHaveLength(1);
+      expect(mockAccountStoreDelete).not.toHaveBeenCalled();
+    });
+
+    it('should report failure when DynamoDB delete fails after successful move', async () => {
+      process.env.EJECT_AFTER_CLEANUP = 'true';
+      jest.resetModules();
+
+      jest.unstable_mockModule('@aws-sdk/client-organizations', () => ({
+        OrganizationsClient: jest.fn().mockImplementation(() => ({
+          send: mockSendOrgs,
+        })),
+        MoveAccountCommand: jest.fn(),
+        ListOrganizationalUnitsForParentCommand: jest.fn(),
+        paginateListOrganizationalUnitsForParent: jest.fn(),
+        ListTagsForResourceCommand: jest.fn(),
+        UntagResourceCommand: jest.fn(),
+      }));
+      jest.unstable_mockModule('@aws-sdk/client-scheduler', () => ({
+        SchedulerClient: jest.fn().mockImplementation(() => ({
+          send: mockSendScheduler,
+        })),
+        CreateScheduleCommand: jest.fn(),
+        FlexibleTimeWindowMode: { OFF: 'OFF' },
+      }));
+      jest.unstable_mockModule('@aws-sdk/client-dynamodb', () => ({
+        DynamoDBClient: jest.fn().mockImplementation(() => ({})),
+      }));
+      jest.unstable_mockModule('@aws-sdk/lib-dynamodb', () => ({
+        DynamoDBDocumentClient: {
+          from: jest.fn().mockReturnValue({ send: mockSendDynamo }),
+        },
+        GetCommand: jest.fn(),
+        PutCommand: jest.fn(),
+      }));
+      jest.unstable_mockModule(
+        '@amzn/innovation-sandbox-commons/isb-services/sandbox-ou-service.js',
+        () => ({
+          SandboxOuService: jest.fn().mockImplementation(() => ({
+            getIsbOu: mockGetIsbOu,
+            transactionalMoveAccount: mockTransactionalMoveAccount,
+            performAccountMoveAction: mockPerformAccountMoveAction,
+          })),
+        })
+      );
+      jest.unstable_mockModule(
+        '@amzn/innovation-sandbox-commons/data/sandbox-account/dynamo-sandbox-account-store.js',
+        () => ({
+          DynamoSandboxAccountStore: jest.fn().mockImplementation(() => ({
+            get: mockAccountStoreGet,
+            delete: mockAccountStoreDelete,
+          })),
+        })
+      );
+      jest.unstable_mockModule(
+        '@amzn/innovation-sandbox-commons/utils/cross-account-roles.js',
+        () => ({
+          fromTemporaryIsbOrgManagementCredentials: jest.fn().mockReturnValue({}),
+        })
+      );
+
+      mockAccountStoreDelete.mockRejectedValue(new Error('DeleteItem failed'));
+
+      const { handler } = await import('./handler.js');
+      const sqsEvent = createSqsEvent([cloudTrailEvent]);
+      const result = await handler(sqsEvent);
+
+      expect(result.batchItemFailures).toHaveLength(1);
+      expect(mockPerformAccountMoveAction).toHaveBeenCalled();
     });
   });
 

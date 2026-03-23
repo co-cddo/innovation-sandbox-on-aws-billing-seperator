@@ -47,6 +47,7 @@ interface LambdaEnv {
   SCHEDULER_ROLE_ARN: string;
   UNQUARANTINE_LAMBDA_ARN: string;
   USER_AGENT_EXTRA: string;
+  EJECT_AFTER_CLEANUP: boolean;
 }
 
 /**
@@ -76,6 +77,7 @@ function getEnv(): LambdaEnv {
     SCHEDULER_ROLE_ARN: process.env[ENV_KEYS.SCHEDULER_ROLE_ARN]!,
     UNQUARANTINE_LAMBDA_ARN: process.env.UNQUARANTINE_LAMBDA_ARN!,
     USER_AGENT_EXTRA: process.env[ENV_KEYS.USER_AGENT_EXTRA] || USER_AGENT_SUFFIX,
+    EJECT_AFTER_CLEANUP: process.env[ENV_KEYS.EJECT_AFTER_CLEANUP] === 'true',
   };
 }
 
@@ -262,6 +264,36 @@ async function processEvent(
       action: 'BYPASS_TAG_SKIPPED',
       accountId,
       message: `Quarantine bypassed: account tagged with '${BYPASS_QUARANTINE_TAG_KEY}'`,
+    };
+  }
+
+  // Step 2c: Check for eject-after-cleanup mode
+  if (env.EJECT_AFTER_CLEANUP) {
+    log(LOG_ACTIONS.EJECT_START, accountId, {
+      mode: 'ejectAfterCleanup',
+      sourceParentId,
+    });
+
+    // Move account from Available → Exit OU
+    await sandboxOuService.performAccountMoveAction(
+      accountId,
+      'Available' as IsbOu,
+      'Exit' as IsbOu
+    );
+
+    // Delete account record from DynamoDB
+    await accountStore.delete(accountId);
+
+    log(LOG_ACTIONS.EJECT_COMPLETE, accountId, {
+      fromOu: 'Available',
+      toOu: 'Exit',
+    });
+
+    return {
+      success: true,
+      action: 'EJECTED',
+      accountId,
+      message: 'Account ejected after cleanup (ejectAfterCleanup enabled)',
     };
   }
 

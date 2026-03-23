@@ -17,6 +17,9 @@ const availableOuId = app.node.tryGetContext('availableOuId');
 const quarantineOuId = app.node.tryGetContext('quarantineOuId');
 const cleanupOuId = app.node.tryGetContext('cleanupOuId');
 
+// Eject after cleanup (optional, defaults to false)
+const ejectAfterCleanup = app.node.tryGetContext('ejectAfterCleanup') === true;
+
 // Alerting (optional)
 const snsAlertEmail = app.node.tryGetContext('snsAlertEmail');
 
@@ -65,6 +68,7 @@ const hubStack = new HubStack(app, `isb-billing-separator-hub-${environment}`, {
   quarantineOuId,
   cleanupOuId,
   orgMgmtAccountId,
+  ejectAfterCleanup, // Optional: eject accounts after cleanup instead of quarantining
   snsAlertEmail, // Optional: omit for no email notifications
   accountTableKmsKeyArn, // Optional: required if DynamoDB table uses CMK encryption
   env: {
